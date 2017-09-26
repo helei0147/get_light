@@ -23,6 +23,7 @@ import os
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
+import numpy as np
 
 IMAGE_SIZE = 32
 
@@ -30,69 +31,6 @@ IMAGE_SIZE = 32
 NUM_CLASSES = 10
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
-
-
-# def read_gl(filename_queue):
-#   """Reads and parses examples from gl data files.
-
-#   Recommendation: if you want N-way read parallelism, call this function
-#   N times.  This will give you N independent Readers reading different
-#   files & positions within those files, which will give better mixing of
-#   examples.
-
-#   Args:
-#     filename_queue: A queue of strings with the filenames to read from.
-
-#   Returns:
-#     An object representing a single example, with the following fields:
-#       height: number of rows in the result (32)
-#       width: number of columns in the result (32)
-#       depth: number of color channels in the result (3)
-#       key: a scalar string Tensor describing the filename & record number
-#         for this example.
-#       label: an int32 Tensor with the label in the range 0..9.
-#       uint8image: a [height, width, depth] uint8 Tensor with the image data
-#   """
-
-#   class glRecord(object):
-#     pass
-#   result = glRecord()
-
-#   # Dimensions of the images in the CIFAR-10 dataset.
-#   # See http://www.cs.toronto.edu/~kriz/cifar.html for a description of the
-#   # input format.
-#   label_bytes = 1  # 2 for CIFAR-100
-#   result.height = 32
-#   result.width = 32
-#   result.depth = 3
-#   image_bytes = result.height * result.width * result.depth
-#   # Every record consists of a label followed by the image, with a
-#   # fixed number of bytes for each.
-#   record_bytes = label_bytes + image_bytes
-
-#   # Read a record, getting filenames from the filename_queue.  No
-#   # header or footer in the CIFAR-10 format, so we leave header_bytes
-#   # and footer_bytes at their default of 0.
-#   reader = tf.FixedLengthRecordReader(record_bytes=record_bytes)
-#   result.key, value = reader.read(filename_queue)
-
-#   # Convert from a string to a vector of uint8 that is record_bytes long.
-#   record_bytes = tf.decode_raw(value, tf.uint8)
-
-#   # The first bytes represent the label, which we convert from uint8->int32.
-#   result.label = tf.cast(
-#       tf.strided_slice(record_bytes, [0], [label_bytes]), tf.int32)
-
-#   # The remaining bytes after the label represent the image, which we reshape
-#   # from [depth * height * width] to [depth, height, width].
-#   depth_major = tf.reshape(
-#       tf.strided_slice(record_bytes, [label_bytes],
-#                        [label_bytes + image_bytes]),
-#       [result.depth, result.height, result.width])
-#   # Convert from [depth, height, width] to [height, width, depth].
-#   result.uint8image = tf.transpose(depth_major, [1, 2, 0])
-
-#   return result
 
 
 def _generate_image_and_label_batch(image, label, min_queue_examples,
@@ -144,18 +82,15 @@ def inputs(eval_data, data_dir, batch_size):
 
   Returns:
     images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
-    labels: Labels. 1D tensor of [batch_size] size.
+    light_directions: 2D tensor of [batch_size, 3] size.
   """
-  if not eval_data:
-    filenames = [os.path.join(data_dir, 'data_batch_%d.bin' % i)
-                 for i in xrange(1, 6)]
-    num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
-  else:
-    filenames = [os.path.join(data_dir, 'test_batch.bin')]
-    num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
+  # TODO:  need to add train/eval dir difference
+  if not eval_data:
+    pass
+  else:
+    pass
   img_folder = '/tmp/light_npy/'
-  info_folder = '/tmp/info_npy/'
   light_directions = np.load('/tmp/light_directions.npy')
   npy_buffer = []
   label_buffer = []
@@ -170,7 +105,6 @@ def inputs(eval_data, data_dir, batch_size):
       temp_light_buffer[:, 1] = light[1]
       temp_light_buffer[:, 2] = light[2]
       npy_buffer.append(img)
-      info_name = '%s%d.npy' % (info_folder, i)
       light_direction_buffer.append(temp_light_buffer)
 
   images = np.concatenate(npy_buffer)
