@@ -68,7 +68,7 @@ def train():
     # Force input pipeline to CPU:0 to avoid operations sometimes ending up on
     # GPU and resulting in a slow down.
     with tf.device('/cpu:0'):
-      images, labels = gl.distorted_inputs()
+      images, labels = gl.inputs()
 
     # Build a Graph that computes the logits predictions from the
     # inference model.
