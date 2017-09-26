@@ -62,7 +62,6 @@ FLAGS = parser.parse_args()
 
 # Global constants describing the CIFAR-10 data set.
 IMAGE_SIZE = gl_input.IMAGE_SIZE
-NUM_CLASSES = gl_input.NUM_CLASSES
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
@@ -158,7 +157,7 @@ def inputs(eval_data):
   """
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
-  data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin')
+  data_dir = '/tmp/light_npy/'
   images, labels = gl_input.inputs(eval_data=eval_data,
                                         data_dir=data_dir,
                                         batch_size=FLAGS.batch_size)
@@ -244,9 +243,9 @@ def inference(images):
   # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
   # and performs the softmax internally for efficiency.
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES],
+    weights = _variable_with_weight_decay('weights', [192, 3],
                                           stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [NUM_CLASSES],
+    biases = _variable_on_cpu('biases', [3],
                               tf.constant_initializer(0.0))
     softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
     _activation_summary(softmax_linear)
@@ -255,17 +254,7 @@ def inference(images):
 
 
 def loss(logits, labels):
-  """Add L2Loss to all the trainable variables.
 
-  Add summary for "Loss" and "Loss/avg".
-  Args:
-    logits: Logits from inference().
-    labels: Labels from distorted_inputs or inputs(). 1-D tensor
-            of shape [batch_size]
-
-  Returns:
-    Loss tensor of type float.
-  """
   # Calculate the average cross entropy loss across the batch.
   labels = tf.cast(labels, tf.int64)
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -273,8 +262,7 @@ def loss(logits, labels):
   cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
   tf.add_to_collection('losses', cross_entropy_mean)
 
-  # Th
-  e total loss is defined as the cross entropy loss plus all of the weight
+  # The total loss is defined as the cross entropy loss plus all of the weight
   # decay terms (L2 loss).
   return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
@@ -360,24 +348,3 @@ def train(total_loss, global_step):
     train_op = tf.no_op(name='train')
 
   return train_op
-
-
-def maybe_download_and_extract():
-  """Download and extract the tarball from Alex's website."""
-  dest_directory = FLAGS.data_dir
-  if not os.path.exists(dest_directory):
-    os.makedirs(dest_directory)
-  filename = DATA_URL.split('/')[-1]
-  filepath = os.path.join(dest_directory, filename)
-  if not os.path.exists(filepath):
-    def _progress(count, block_size, total_size):
-      sys.stdout.write('\r>> Downloading %s %.1f%%' % (filename,
-          float(count * block_size) / float(total_size) * 100.0))
-      sys.stdout.flush()
-    filepath, _ = urllib.request.urlretrieve(DATA_URL, filepath, _progress)
-    print()
-    statinfo = os.stat(filepath)
-    print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
-  extracted_dir_path = os.path.join(dest_directory, 'cifar-10-batches-bin')
-  if not os.path.exists(extracted_dir_path):
-    tarfile.open(filepath, 'r:gz').extractall(dest_directory)
