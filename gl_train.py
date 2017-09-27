@@ -68,7 +68,7 @@ def train():
     # Force input pipeline to CPU:0 to avoid operations sometimes ending up on
     # GPU and resulting in a slow down.
     with tf.device('/cpu:0'):
-      images, labels = gl.inputs(eval_data=False,data_dir='/tmp/light_npy/', batch_size=1000)
+      images, labels = gl.inputs(False,'/tmp/light_npy/', 1000)
 
     # Build a Graph that computes the logits predictions from the
     # inference model.
