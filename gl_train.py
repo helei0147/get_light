@@ -46,7 +46,7 @@ import gl
 
 parser = gl.parser
 
-parser.add_argument('--train_dir', type=str, default='/tmp/gl_train',
+parser.add_argument('--train_dir', type=str, default='/tmp/light_npy',
                     help='Directory where to write event logs and checkpoint.')
 
 parser.add_argument('--max_steps', type=int, default=1000000,
@@ -68,7 +68,7 @@ def train():
     # Force input pipeline to CPU:0 to avoid operations sometimes ending up on
     # GPU and resulting in a slow down.
     with tf.device('/cpu:0'):
-      images, labels = gl.inputs(False,'/tmp/light_npy/', 1000)
+      images, labels = gl.inputs(False)
 
     # Build a Graph that computes the logits predictions from the
     # inference model.

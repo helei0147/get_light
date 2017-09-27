@@ -99,7 +99,7 @@ def inputs(eval_data, data_dir, batch_size):
       img_name = '%s%d.npy' % (img_folder, i)
       img = np.load(img_name)
       total_channel_num = img.shape[0]*img.shape[3]
-      light = light_direction[i, :]
+      light = light_directions[i, :]
       temp_light_buffer = np.ndarray([total_channel_num, 3], dtype = np.float32) # including the related light directions for all channel images of this light
       temp_light_buffer[:, 0] = light[0]
       temp_light_buffer[:, 1] = light[1]
