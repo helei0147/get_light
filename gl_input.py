@@ -90,7 +90,7 @@ def inputs(eval_data, data_dir, batch_size):
     pass
   else:
     pass
-  img_folder = '/tmp/light_npy/'
+  img_folder = data_dir
   light_directions = np.load('/tmp/light_directions.npy')
   npy_buffer = []
   label_buffer = []
