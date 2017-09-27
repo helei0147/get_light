@@ -33,7 +33,7 @@ image_count = images.shape[0]
 # write tfrecord
 writer = tf.python_io.TFRecordWriter('data.tfrecord')
 for i in range(image_count):
-    image = image[i,...]
+    image = images[i,...]
     light = light_directions[i,...]
     raw_image = image.tostring()
     raw_light = light.tostring()
