@@ -252,21 +252,6 @@ def inference(images):
 
   return softmax_linear
 
-
-def loss(logits, labels):
-
-  # Calculate the average cross entropy loss across the batch.
-  labels = tf.cast(labels, tf.int64)
-  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=labels, logits=logits, name='cross_entropy_per_example')
-  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
-  tf.add_to_collection('losses', cross_entropy_mean)
-
-  # The total loss is defined as the cross entropy loss plus all of the weight
-  # decay terms (L2 loss).
-  return tf.add_n(tf.get_collection('losses'), name='total_loss')
-
-
 def _add_loss_summaries(total_loss):
   """Add summaries for losses in CIFAR-10 model.
 
@@ -348,3 +333,52 @@ def train(total_loss, global_step):
     train_op = tf.no_op(name='train')
 
   return train_op
+
+def loss(est_normals, gts):
+  """Calculates the loss from the logits and the labels.
+
+    Args:
+      logits: Logits tensor, float - [batch_size, NUM_CLASSES].
+      labels: Labels tensor, int32 - [batch_size].
+
+    Returns:
+      loss: Loss tensor of type float.
+    """
+  est_normals = regularize_normals(est_normals)
+  gts = regularize_normals(gts)
+  pow_para = tf.zeros(tf.shape(est_normals))+2
+  a = est_normals-gts
+  L = tf.pow(a, pow_para)
+  loss = tf.reduce_sum(L)
+  return loss
+
+def evaluation(logits, labels):
+    """Evaluate the quality of the logits at predicting the label.
+
+    Args:
+      logits: observation tensor, float - [batch_size, 3].
+      labels: normal tensor, float - [batch_size, 3]
+
+    Returns:
+      total error in degree for this batch
+    """
+    # regularize estimated normal(logits)
+    logits = regularize_normals(logits)
+    labels = regularize_normals(labels)
+    error = tf.multiply(logits, labels)
+    cos_error = tf.reduce_sum(error, 1)
+    rad_error = tf.acos(cos_error)
+    deg_error = rad_error/3.1415926*180
+    # Return the number of true entries.
+    return tf.reduce_sum(deg_error)
+
+def regularize_normals(logits):
+    pow_para = tf.zeros(tf.shape(logits))+2
+    squared = tf.pow(logits,pow_para)
+    sqr_sum = tf.reduce_sum(squared, 1)
+    pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
+    normal_lengths = tf.pow(sqr_sum,pow_para)
+    normal_lengths = tf.expand_dims(normal_lengths,1)
+    weight = tf.concat(1,[normal_lengths, normal_lengths, normal_lengths])
+    regulared = tf.divide(logits,weight)
+    return regulared
