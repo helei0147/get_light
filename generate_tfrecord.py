@@ -41,6 +41,6 @@ for i in range(image_count):
         'light_direction': _floats_feature(raw_light),
         'image': _floats_feature(raw_image)
     }))
-    writer.write(wxample.SerializeToString())
+    writer.write(example.SerializeToString())
 
 writer.close()
