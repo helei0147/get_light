@@ -16,4 +16,5 @@ image = tf.cast(features['image'], tf.float32)
 light = tf.cast(features['light'], tf.float32)
 
 image = tf.reshape(image,[32,32])
-print(image.eval())
+
+image.eval()
