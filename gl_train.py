@@ -74,6 +74,7 @@ def train():
     # inference model.
     logits = gl.inference(images)
 
+    check_op = tf.add_check_numerics_ops()
     # Calculate loss.
     loss = gl.loss(logits, labels)
 
@@ -115,7 +116,7 @@ def train():
         config=tf.ConfigProto(
             log_device_placement=FLAGS.log_device_placement)) as mon_sess:
       while not mon_sess.should_stop():
-        mon_sess.run(train_op)
+        mon_sess.run([train_op, check_op])
 
 
 def main(argv=None):  # pylint: disable=unused-argument
