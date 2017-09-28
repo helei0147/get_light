@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 tf.InteractiveSession()
-feature = {'image': tf.FixedLenFeature([], tf.string),
-           'light': tf.FixedLenFeature([], tf.string)}
+feature = {'image': tf.FixedLenFeature([1024], tf.float32),
+           'light': tf.FixedLenFeature([3], tf.float32)}
 
 filename_queue = tf.train.string_input_producer(['data.tfrecord'], num_epochs = 1)
 
