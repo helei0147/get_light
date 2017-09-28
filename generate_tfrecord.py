@@ -29,16 +29,25 @@ t = np.transpose(images, axes = [0, 3, 1, 2])
 m = np.concatenate(t, axis = 0)
 images = np.transpose(m, axes = [1, 2, 0])
 light_directions = np.concatenate(light_direction_buffer)
-image_count = images.shape[0]
+image_count = images.shape[2]
 # write tfrecord
-writer = tf.python_io.TFRecordWriter('data.tfrecord')
+print('\n\n\n')
+print(image_count)
+print('\n\n\n')
 for i in range(image_count):
-    image = images[i,...]
+    file_count = i//100000
+    if i%100000==0:
+        if file_count==0:
+            pass
+        else:
+            writer.close()
+        writer = tf.python_io.TFRecordWriter('data/%d.tfrecord'%(file_count))
+    image = images[:,:,i]
     image_list = np.reshape(image, [-1])
     light = light_directions[i,...]
     example = tf.train.Example(features = tf.train.Features(feature = {
-        'light_direction': _floats_feature(light),
-        'image': _floats_feature(image_list)
+        'image':_floats_feature(image_list),
+        'light':_floats_feature(light)
     }))
     writer.write(example.SerializeToString())
 
