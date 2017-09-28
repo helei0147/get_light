@@ -69,10 +69,10 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
   # Display the training images in the visualizer.
   tf.summary.image('images', images)
 
-  return images, tf.reshape(label_batch, [batch_size])
+  return images, tf.reshape(label_batch, [batch_size, 3])
 
 
-def inputs(eval_data, data_name, batch_size):
+def inputs(eval_data, data_dir, batch_size):
   """Construct input for CIFAR evaluation using the Reader ops.
 
   Args:
@@ -87,13 +87,15 @@ def inputs(eval_data, data_name, batch_size):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
+    num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
     pass
   else:
+    num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
     pass
   feature = {'image': tf.FixedLenFeature([1024], tf.float32),
            'light': tf.FixedLenFeature([3], tf.float32)}
 
-  filename_queue = tf.train.string_input_producer([data_name], num_epochs = 1)
+  filename_queue = tf.train.string_input_producer([data_dir], num_epochs = 1)
 
   reader = tf.TFRecordReader()
 
@@ -104,7 +106,7 @@ def inputs(eval_data, data_name, batch_size):
   image = tf.cast(features['image'], tf.float32)
   light = tf.cast(features['light'], tf.float32)
 
-  image = tf.reshape(image,[32,32])
+  image = tf.reshape(image,[32, 32, 1])
 
 
   height = IMAGE_SIZE
@@ -113,8 +115,8 @@ def inputs(eval_data, data_name, batch_size):
 
 
   # Set the shapes of tensors.
-  float_image.set_shape([height, width])
-  light_directions.set_shape([3])
+  float_image.set_shape([height, width, 1])
+  light.set_shape([3])
 
   # Ensure that the random shuffling has good mixing properties.
   min_fraction_of_examples_in_queue = 0.4
@@ -122,6 +124,6 @@ def inputs(eval_data, data_name, batch_size):
                            min_fraction_of_examples_in_queue)
 
   # Generate a batch of images and labels by building up a queue of examples.
-  return _generate_image_and_label_batch(float_image, label,
+  return _generate_image_and_label_batch(float_image, light,
                                          min_queue_examples, batch_size,
                                          shuffle=True)
