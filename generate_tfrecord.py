@@ -34,10 +34,11 @@ image_count = images.shape[0]
 writer = tf.python_io.TFRecordWriter('data.tfrecord')
 for i in range(image_count):
     image = images[i,...]
+    image_list = np.reshape(image, [-1])
     light = light_directions[i,...]
     example = tf.train.Example(features = tf.train.Features(feature = {
         'light_direction': _floats_feature(light),
-        'image': _floats_feature(image)
+        'image': _floats_feature(image_list)
     }))
     writer.write(example.SerializeToString())
 
