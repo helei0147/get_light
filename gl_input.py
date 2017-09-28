@@ -87,6 +87,8 @@ def inputs(eval_data, data_dir, batch_size):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
+    filenames = ['data/%d.tfrecord'%(i) for i in range(10)]
+    print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
     pass
   else:
@@ -95,7 +97,7 @@ def inputs(eval_data, data_dir, batch_size):
   feature = {'image': tf.FixedLenFeature([1024], tf.float32),
            'light': tf.FixedLenFeature([3], tf.float32)}
 
-  filename_queue = tf.train.string_input_producer([data_dir], num_epochs = 1)
+  filename_queue = tf.train.string_input_producer(filenames, num_epochs = 1)
 
   reader = tf.TFRecordReader()
 
