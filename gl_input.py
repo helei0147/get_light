@@ -72,7 +72,7 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
   return images, tf.reshape(label_batch, [batch_size])
 
 
-def inputs(eval_data, data_dir, batch_size):
+def inputs(eval_data, data_name, batch_size):
   """Construct input for CIFAR evaluation using the Reader ops.
 
   Args:
@@ -90,39 +90,30 @@ def inputs(eval_data, data_dir, batch_size):
     pass
   else:
     pass
-  img_folder = data_dir
-  light_directions = np.load('/tmp/light_directions.npy')
-  npy_buffer = []
-  label_buffer = []
-  light_direction_buffer = []
-  for i in range(200):
-      img_name = '%s%d.npy' % (img_folder, i)
-      img = np.load(img_name)
-      total_channel_num = img.shape[0]*img.shape[3]
-      light = light_directions[i, :]
-      temp_light_buffer = np.ndarray([total_channel_num, 3], dtype = np.float32) # including the related light directions for all channel images of this light
-      temp_light_buffer[:, 0] = light[0]
-      temp_light_buffer[:, 1] = light[1]
-      temp_light_buffer[:, 2] = light[2]
-      npy_buffer.append(img)
-      light_direction_buffer.append(temp_light_buffer)
+  feature = {'image': tf.FixedLenFeature([1024], tf.float32),
+           'light': tf.FixedLenFeature([3], tf.float32)}
 
-  images = np.concatenate(npy_buffer)
-  t = np.transpose(images, axes = [0, 3, 1, 2])
-  m = np.concatenate(t, axis = 0)
-  images = np.transpose(m, axes = [1, 2, 0])
-  reshaped_image = tf.convert_to_tensor(images)
-  light_directions = np.concatenate(light_direction_buffer)
-  light_directions = tf.convert_to_tensor(light_directions)
+  filename_queue = tf.train.string_input_producer([data_name], num_epochs = 1)
+
+  reader = tf.TFRecordReader()
+
+  _, serialized_example = reader.read(filename_queue)
+
+  features = tf.parse_single_example(serialized_example, features = feature)
+
+  image = tf.cast(features['image'], tf.float32)
+  light = tf.cast(features['light'], tf.float32)
+
+  image = tf.reshape(image,[32,32])
 
 
   height = IMAGE_SIZE
   width = IMAGE_SIZE
-  float_image = reshaped_image
+  float_image = image
 
 
   # Set the shapes of tensors.
-  float_image.set_shape([height, width, 3])
+  float_image.set_shape([height, width])
   light_directions.set_shape([3])
 
   # Ensure that the random shuffling has good mixing properties.
