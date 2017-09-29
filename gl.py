@@ -166,6 +166,8 @@ def inputs(eval_data):
     labels = tf.cast(labels, tf.float16)
   return images, labels
 
+def check_input(images, lights):
+  return images[0,:,:]
 
 def inference(images):
   """Build the CIFAR-10 model.
