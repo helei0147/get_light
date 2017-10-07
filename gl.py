@@ -49,10 +49,10 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=1024,
                     help='Number of images to process in a batch.')
 
-parser.add_argument('--data_dir', type=str, default='data',
+parser.add_argument('--data_dir', type=str, default='data_small',
                     help='Path to the CIFAR-10 data directory.')
 
 parser.add_argument('--use_fp16', type=bool, default=False,
@@ -157,7 +157,7 @@ def inputs(eval_data):
   """
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
-  data_dir = 'data.tfrecord'
+  data_dir = 'data_small/'
   images, labels = gl_input.inputs(eval_data=eval_data,
                                         data_dir=data_dir,
                                         batch_size=FLAGS.batch_size)

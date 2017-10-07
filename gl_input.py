@@ -87,17 +87,19 @@ def inputs(eval_data, data_dir, batch_size):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['data/%d.tfrecord'%(i) for i in range(10)]
+    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
     pass
   else:
+    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8,10)]
+    print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
     pass
-  feature = {'image': tf.FixedLenFeature([1024], tf.float32),
-           'light': tf.FixedLenFeature([3], tf.float32)}
+  feature = {'image': tf.FixedLenFeature([], tf.string),
+           'light': tf.FixedLenFeature([], tf.string)}
 
-  filename_queue = tf.train.string_input_producer(filenames, num_epochs = 1)
+  filename_queue = tf.train.string_input_producer(filenames, num_epochs = 20)
 
   reader = tf.TFRecordReader()
 
@@ -105,15 +107,15 @@ def inputs(eval_data, data_dir, batch_size):
 
   features = tf.parse_single_example(serialized_example, features = feature)
 
-  image = tf.cast(features['image'], tf.float32)
-  light = tf.cast(features['light'], tf.float32)
+  image = tf.decode_raw(features['image'], tf.float32)
+  light = tf.decode_raw(features['light'], tf.float32)
 
   image = tf.reshape(image,[32, 32, 1])
 
 
   height = IMAGE_SIZE
   width = IMAGE_SIZE
-  float_image = image
+  float_image = tf.image.per_image_standardization(image)
 
 
   # Set the shapes of tensors.
