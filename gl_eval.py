@@ -78,6 +78,7 @@ def eval_once(saver, summary_writer, result, summary_op):
     ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
       # Restores from checkpoint
+      print('\n\nloaded\n\n')
       saver.restore(sess, ckpt.model_checkpoint_path)
       # Assuming model_checkpoint_path looks something like:
       #   /my-favorite-path/gl_train/model.ckpt-0,
@@ -86,20 +87,30 @@ def eval_once(saver, summary_writer, result, summary_op):
     else:
       print('No checkpoint file found')
       return
+    #coord = tf.train.Coordinator()
+    #threads = []
+    #for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
+    #    threads.extend(qr.create_threads(sess, coord = coord, daemon = True, start = True))
     num_iter = int(math.ceil(FLAGS.num_examples/FLAGS.batch_size))
     total_error = 0
     total_sample_count = num_iter*FLAGS.batch_size
     step = 0
-    while step<num_iter:
+    while step<num_iter: #and not coord.should_stop():
+      print('\n\nrum result\n\n')
       prediction = sess.run([result])
+      print('\n\nrun finished\n\n')
       total_error+= prediction
       step+=1
+      print('\n\nresult end\n\n')
     precision = total_error/total_sample_count
     print('precision: %.5f'%(precision))
     summary = tf.Summary()
     summary.ParseFromString(sess.run(summary_op))
     summary.value.add(tag = 'Precision @ 1', simple_value = precision)
     summary_writer.add_summary(summary, global_step)
+
+    #coord.request_stop()
+    #coord.join(threads, stop_grace_period_secs = 10)
 
 
 def evaluate():
@@ -115,7 +126,9 @@ def evaluate():
     result = gl.evaluation(logits, labels)
 
     # Restore the moving average version of the learned variables for eval.
-    saver = tf.train.Saver()
+    variable_averages = tf.train.ExponentialMovingAverage(gl.MOVING_AVERAGE_DECAY)
+    variables_to_restore = variable_averages.variables_to_restore()
+    saver = tf.train.Saver(variables_to_restore)
 
     # Build the summary operation based on the TF collection of Summaries.
     summary_op = tf.summary.merge_all()
@@ -123,6 +136,7 @@ def evaluate():
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
 
     while True:
+      print('\n\neval_once\n\n')
       eval_once(saver, summary_writer, result, summary_op)
       if FLAGS.run_once:
         break
@@ -131,6 +145,7 @@ def evaluate():
 
 def main(argv=None):  # pylint: disable=unused-argument
   tf.gfile.MakeDirs(FLAGS.eval_dir)
+  print('\n\nevaluate\n\n')
   evaluate()
 
 

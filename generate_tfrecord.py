@@ -2,10 +2,11 @@
 import tensorflow as tf
 import numpy as np
 import os,sys
-
+import time
 def _floats_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value = value))
-
+def _byte_feature(value):
+    return tf.train.Feature(bytes_list = tf.train.BytesList(value = [value]))
 img_folder = '/tmp/light_npy/'
 light_directions = np.load('/tmp/light_directions.npy')
 npy_buffer = []
@@ -30,25 +31,46 @@ m = np.concatenate(t, axis = 0)
 images = np.transpose(m, axes = [1, 2, 0])
 light_directions = np.concatenate(light_direction_buffer)
 image_count = images.shape[2]
+# images is a array with shape [32,32,image_count]
+# light_directions is an array with shape [image_count, 3]
+
+# shuffle the input
+index = np.random.permutation(range(image_count))
+light_directions = light_directions[index,:]
+images = images[:,:,index]
+
 # write tfrecord
 print('\n\n\n')
 print(image_count)
 print('\n\n\n')
+split_num = 100000
+nan_buffer = []
 for i in range(image_count):
-    file_count = i//100000
-    if i%100000==0:
+    file_count = i//split_num
+    if i%split_num==0:
         if file_count==0:
             pass
         else:
             writer.close()
-        writer = tf.python_io.TFRecordWriter('data/%d.tfrecord'%(file_count))
+        writer = tf.python_io.TFRecordWriter('data_small/%d.tfrecord'%(file_count))
     image = images[:,:,i]
     image_list = np.reshape(image, [-1])
+    image_list = np.float32(image_list)
+    nan_num = np.count_nonzero(np.isnan(image_list))
+    if nan_num>0:
+        print('nan occurs at %d, nan_num: %d' % (i,nan_num))
+        nan_buffer.append(image)
+        print(image_list)
+        continue
+    raw_image = image_list.tostring()
     light = light_directions[i,...]
+    raw_light = light.tostring()
     example = tf.train.Example(features = tf.train.Features(feature = {
-        'image':_floats_feature(image_list),
-        'light':_floats_feature(light)
+        'image':_byte_feature(tf.compat.as_bytes(raw_image)),
+        'light':_byte_feature(tf.compat.as_bytes(raw_light))
     }))
     writer.write(example.SerializeToString())
 
 writer.close()
+nan_buffer = np.array(nan_buffer)
+np.save('nan.npy', nan_buffer)
