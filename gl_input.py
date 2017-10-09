@@ -30,7 +30,7 @@ IMAGE_SIZE = 32
 # Global constants describing the CIFAR-10 data set.
 NUM_CLASSES = 10
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 50000
 
 
 def _generate_image_and_label_batch(image, label, min_queue_examples,
@@ -99,7 +99,7 @@ def inputs(eval_data, data_dir, batch_size):
   feature = {'image': tf.FixedLenFeature([], tf.string),
            'light': tf.FixedLenFeature([], tf.string)}
 
-  filename_queue = tf.train.string_input_producer(filenames, num_epochs = 20)
+  filename_queue = tf.train.string_input_producer(filenames)
 
   reader = tf.TFRecordReader()
 

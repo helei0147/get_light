@@ -70,7 +70,7 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
 NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.1       # Initial learning rate.
+INITIAL_LEARNING_RATE = 0.01       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -250,6 +250,7 @@ def inference(images):
     biases = _variable_on_cpu('biases', [3],
                               tf.constant_initializer(0.0))
     softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
+    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"softmax_linear: ")
     _activation_summary(softmax_linear)
 
   return softmax_linear
@@ -348,10 +349,17 @@ def loss(est_normals, gts):
     """
   est_normals = regularize_normals(est_normals)
   gts = regularize_normals(gts)
-  pow_para = tf.zeros(tf.shape(est_normals))+2
-  a = est_normals-gts
-  L = tf.pow(a, pow_para)
-  loss = tf.reduce_sum(L)
+  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  error = tf.multiply(est_normals, gts)
+  cos_error = tf.reduce_sum(error, 1)
+  rad_error = tf.acos(cos_error)
+  deg_error = rad_error/3.1415926*180
+  loss = tf.reduce_sum(deg_error)
+
+#  pow_para = tf.zeros(tf.shape(est_normals))+2
+#  a = est_normals-gts
+#  L = tf.pow(a, pow_para)
+#  loss = tf.reduce_sum(L)
   return loss
 
 def evaluation(logits, labels):
@@ -372,7 +380,7 @@ def evaluation(logits, labels):
     rad_error = tf.acos(cos_error)
     deg_error = rad_error/3.1415926*180
     # Return the number of true entries.
-    return tf.reduce_sum(deg_error)
+    return deg_error
 
 def regularize_normals(logits):
     pow_para = tf.zeros(tf.shape(logits))+2

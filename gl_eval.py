@@ -87,19 +87,22 @@ def eval_once(saver, summary_writer, result, summary_op):
     else:
       print('No checkpoint file found')
       return
-    #coord = tf.train.Coordinator()
-    #threads = []
-    #for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
-    #    threads.extend(qr.create_threads(sess, coord = coord, daemon = True, start = True))
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess = sess, coord = coord)
+    for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
+        threads.extend(qr.create_threads(sess, coord = coord, daemon = True, start = True))
     num_iter = int(math.ceil(FLAGS.num_examples/FLAGS.batch_size))
     total_error = 0
     total_sample_count = num_iter*FLAGS.batch_size
     step = 0
-    while step<num_iter: #and not coord.should_stop():
+    while step<num_iter and not coord.should_stop():
       print('\n\nrum result\n\n')
       prediction = sess.run([result])
       print('\n\nrun finished\n\n')
-      total_error+= prediction
+      print(prediction)
+      print('\n\nlen prediction:%f'%(len(prediction[0])))
+      print(np.sum(prediction)/len(prediction[0]))
+      total_error += np.sum(prediction[0])
       step+=1
       print('\n\nresult end\n\n')
     precision = total_error/total_sample_count
@@ -109,8 +112,8 @@ def eval_once(saver, summary_writer, result, summary_op):
     summary.value.add(tag = 'Precision @ 1', simple_value = precision)
     summary_writer.add_summary(summary, global_step)
 
-    #coord.request_stop()
-    #coord.join(threads, stop_grace_period_secs = 10)
+    coord.request_stop()
+    coord.join(threads, stop_grace_period_secs = 10)
 
 
 def evaluate():
@@ -140,7 +143,7 @@ def evaluate():
       eval_once(saver, summary_writer, result, summary_op)
       if FLAGS.run_once:
         break
-      time.sleep(FLAGS.eval_interval_secs)
+      time.sleep(3)
 
 
 def main(argv=None):  # pylint: disable=unused-argument
