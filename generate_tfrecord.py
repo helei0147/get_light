@@ -7,15 +7,15 @@ def _floats_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value = value))
 def _byte_feature(value):
     return tf.train.Feature(bytes_list = tf.train.BytesList(value = [value]))
-img_folder = '/tmp/light_npy/'
-light_directions = np.load('/tmp/light_directions.npy')
+img_folder = '/tmp/patch_data/light_npy/'
+light_directions = np.load('/tmp/patch_data/light_directions.npy')
 npy_buffer = []
 label_buffer = []
 light_direction_buffer = []
 for i in range(200):
   img_name = '%s%d.npy' % (img_folder, i)
   img = np.load(img_name)
-  total_channel_num = img.shape[0]*img.shape[3]
+  total_channel_num = img.shape[0]
   light = light_directions[i, :]
   temp_light_buffer = np.ndarray([total_channel_num, 3], dtype = np.float32)
   # including the related light directions for all channel images of this light
@@ -26,9 +26,7 @@ for i in range(200):
   light_direction_buffer.append(temp_light_buffer)
 
 images = np.concatenate(npy_buffer)
-t = np.transpose(images, axes = [0, 3, 1, 2])
-m = np.concatenate(t, axis = 0)
-images = np.transpose(m, axes = [1, 2, 0])
+images = np.transpose(images, axes = [1, 2, 0])
 light_directions = np.concatenate(light_direction_buffer)
 image_count = images.shape[2]
 # images is a array with shape [32,32,image_count]
@@ -61,6 +59,7 @@ for i in range(image_count):
         print('nan occurs at %d, nan_num: %d' % (i,nan_num))
         nan_buffer.append(image)
         print(image_list)
+        time.sleep(3)
         continue
     raw_image = image_list.tostring()
     light = light_directions[i,...]
