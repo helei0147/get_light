@@ -46,7 +46,7 @@ import gl
 
 parser = gl.parser
 
-parser.add_argument('--train_dir', type=str, default='data/',
+parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
 parser.add_argument('--max_steps', type=int, default=10000,

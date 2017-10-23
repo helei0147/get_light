@@ -87,12 +87,12 @@ def inputs(eval_data, data_dir, batch_size):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8)]
+    filenames = ['data_tiny/%d.tfrecord'%(i) for i in range(8)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
     pass
   else:
-    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8,10)]
+    filenames = ['data_tiny/%d.tfrecord'%(i) for i in range(8,10)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
     pass
