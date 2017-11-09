@@ -40,7 +40,7 @@ import os
 import re
 import sys
 import tarfile
-
+import numpy as np
 from six.moves import urllib
 import tensorflow as tf
 
@@ -49,7 +49,7 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=1024,
+parser.add_argument('--batch_size', type=int, default=128,
                     help='Number of images to process in a batch.')
 
 parser.add_argument('--data_dir', type=str, default='data_small',
@@ -76,6 +76,8 @@ INITIAL_LEARNING_RATE = 0.01       # Initial learning rate.
 # to differentiate the operations. Note that this prefix is removed from the
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
+
+LIGHT_NUMBER = 16
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
 
@@ -157,9 +159,8 @@ def inputs(eval_data):
   """
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
-  data_dir = 'data_small/'
   images, labels = gl_input.inputs(eval_data=eval_data,
-                                        data_dir=data_dir,
+                                        data_dir='data_tiny/',
                                         batch_size=FLAGS.batch_size)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
@@ -186,40 +187,39 @@ def inference(images):
   # conv1
   with tf.variable_scope('conv1') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 1, 64],
+                                         shape=[5, 5, 3, 1, 16],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+    conv = tf.nn.conv3d(images, kernel, [1, 1, 1, 1, 1], padding='SAME')
+    biases = _variable_on_cpu('biases', [16], tf.constant_initializer(0.0))
     pre_activation = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(pre_activation, name=scope.name)
     _activation_summary(conv1)
 
   # pool1
-  pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
+  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 2, 1], strides=[1, 2, 2, 2, 1],
                          padding='SAME', name='pool1')
   # norm1
-  norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm1')
+  #norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
 
   # conv2
   with tf.variable_scope('conv2') as scope:
     kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 64, 64],
+                                         shape=[5, 5, 3, 16, 32],
                                          stddev=5e-2,
                                          wd=0.0)
-    conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
+    conv = tf.nn.conv3d(pool1, kernel, [1, 1, 1, 1, 1], padding='SAME')
+    biases = _variable_on_cpu('biases', [32], tf.constant_initializer(0.1))
     pre_activation = tf.nn.bias_add(conv, biases)
     conv2 = tf.nn.relu(pre_activation, name=scope.name)
     _activation_summary(conv2)
 
   # norm2
-  norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm2')
+  #norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+  #                  name='norm2')
   # pool2
-  pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1],
-                         strides=[1, 2, 2, 1], padding='SAME', name='pool2')
+  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 2, 1],
+                         strides=[1, 2, 2, 2, 1], padding='SAME', name='pool2')
 
   # local3
   with tf.variable_scope('local3') as scope:
@@ -245,9 +245,9 @@ def inference(images):
   # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
   # and performs the softmax internally for efficiency.
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, 3],
+    weights = _variable_with_weight_decay('weights', [192, 48],
                                           stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [3],
+    biases = _variable_on_cpu('biases', [48],
                               tf.constant_initializer(0.0))
     softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
     #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"softmax_linear: ")
@@ -340,26 +340,20 @@ def train(total_loss, global_step):
 def loss(est_normals, gts):
   """Calculates the loss from the logits and the labels.
 
-    Args:
-      logits: Logits tensor, float - [batch_size, NUM_CLASSES].
-      labels: Labels tensor, int32 - [batch_size].
-
-    Returns:
-      loss: Loss tensor of type float.
     """
   est_normals = regularize_normals(est_normals)
   gts = regularize_normals(gts)
   est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
-  error = tf.multiply(est_normals, gts)
-  cos_error = tf.reduce_sum(error, 1)
-  rad_error = tf.acos(cos_error)
-  deg_error = rad_error/3.1415926*180
-  loss = tf.reduce_sum(deg_error)
 
-#  pow_para = tf.zeros(tf.shape(est_normals))+2
-#  a = est_normals-gts
-#  L = tf.pow(a, pow_para)
-#  loss = tf.reduce_sum(L)
+  est_colle = tf.split(est_normals, LIGHT_NUMBER, axis=1)
+  gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
+  loss = 0
+  for i in range(LIGHT_NUMBER):
+    error = tf.multiply(est_colle[i], gts_colle[i])
+    cos_error = tf.reduce_sum(error, 1)
+    rad_error = tf.acos(cos_error)
+    deg_error = rad_error/3.1415926*180
+    loss = loss + tf.reduce_sum(deg_error)
   return loss
 
 def evaluation(logits, labels):
@@ -373,22 +367,37 @@ def evaluation(logits, labels):
       total error in degree for this batch
     """
     # regularize estimated normal(logits)
-    logits = regularize_normals(logits)
-    labels = regularize_normals(labels)
-    error = tf.multiply(logits, labels)
-    cos_error = tf.reduce_sum(error, 1)
-    rad_error = tf.acos(cos_error)
-    deg_error = rad_error/3.1415926*180
+    est = regularize_normals(logits)
+    gts = regularize_normals(labels)
+    est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
+    gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
+    for i in range(LIGHT_NUMBER):
+      error = tf.multiply(logits, labels)
+      cos_error = tf.reduce_sum(error, 1)
+      rad_error = tf.acos(cos_error)
+      deg_error = rad_error/3.1415926*180
+      if i==0:
+        total_error = deg_error
+      else:
+        total_error = tf.add(total_error, deg_error)
     # Return the number of true entries.
-    return deg_error
+    return total_error
+
 
 def regularize_normals(logits):
+  normals = tf.split(logits, LIGHT_NUMBER, axis=1)
+  for normal in normals:
+    normal = regularize_normals_sub(normal)
+  logits = tf.concat(normals, 1)
+  return logits
+
+def regularize_normals_sub(logits):
     pow_para = tf.zeros(tf.shape(logits))+2
     squared = tf.pow(logits,pow_para)
     sqr_sum = tf.reduce_sum(squared, 1)
     pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
     normal_lengths = tf.pow(sqr_sum,pow_para)
     normal_lengths = tf.expand_dims(normal_lengths,1)
-    weight = tf.concat(1,[normal_lengths, normal_lengths, normal_lengths])
+    weight = tf.concat([normal_lengths, normal_lengths, normal_lengths], axis=1)
     regulared = tf.divide(logits,weight)
     return regulared
