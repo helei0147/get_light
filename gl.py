@@ -43,13 +43,13 @@ import tarfile
 import numpy as np
 from six.moves import urllib
 import tensorflow as tf
-
+from tensorflow.python import debug as tfdbg
 import gl_input
 
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=1024,
                     help='Number of images to process in a batch.')
 
 parser.add_argument('--data_dir', type=str, default='data_small',
@@ -70,14 +70,14 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
 NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.01       # Initial learning rate.
+INITIAL_LEARNING_RATE = 0.001       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
 
-LIGHT_NUMBER = 16
+LIGHT_NUMBER = 5
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
 
@@ -195,9 +195,9 @@ def inference(images):
     pre_activation = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(pre_activation, name=scope.name)
     _activation_summary(conv1)
-
+    tf.Print(tf.shape(conv1), [tf.shape(conv1)])
   # pool1
-  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 2, 1], strides=[1, 2, 2, 2, 1],
+  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 1, 1], strides=[1, 2, 2, 1, 1],
                          padding='SAME', name='pool1')
   # norm1
   #norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
@@ -218,8 +218,8 @@ def inference(images):
   #norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
   #                  name='norm2')
   # pool2
-  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 2, 1],
-                         strides=[1, 2, 2, 2, 1], padding='SAME', name='pool2')
+  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 1, 1],
+                         strides=[1, 2, 2, 1, 1], padding='SAME', name='pool2')
 
   # local3
   with tf.variable_scope('local3') as scope:
@@ -245,12 +245,12 @@ def inference(images):
   # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
   # and performs the softmax internally for efficiency.
   with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, 48],
+    weights = _variable_with_weight_decay('weights', [192, LIGHT_NUMBER*3],
                                           stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [48],
+    biases = _variable_on_cpu('biases', [LIGHT_NUMBER*3],
                               tf.constant_initializer(0.0))
     softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
-    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"softmax_linear: ")
+    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"\n\n\nsoftmax_linear: ")
     _activation_summary(softmax_linear)
 
   return softmax_linear
@@ -341,9 +341,10 @@ def loss(est_normals, gts):
   """Calculates the loss from the logits and the labels.
 
     """
+  #tf.assign(est_normals, regularize_normals(est_normals))
   est_normals = regularize_normals(est_normals)
   gts = regularize_normals(gts)
-  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  #tf.Print(est_normals, [est_normals], '\n\n\n\nestimated: ')
 
   est_colle = tf.split(est_normals, LIGHT_NUMBER, axis=1)
   gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
@@ -354,6 +355,7 @@ def loss(est_normals, gts):
     rad_error = tf.acos(cos_error)
     deg_error = rad_error/3.1415926*180
     loss = loss + tf.reduce_sum(deg_error)
+  tf.Print(loss, [loss], '\nloss:')
   return loss
 
 def evaluation(logits, labels):
@@ -367,6 +369,7 @@ def evaluation(logits, labels):
       total error in degree for this batch
     """
     # regularize estimated normal(logits)
+    print('fuck\nfuck\n\nfuck\n')
     est = regularize_normals(logits)
     gts = regularize_normals(labels)
     est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
@@ -380,18 +383,23 @@ def evaluation(logits, labels):
         total_error = deg_error
       else:
         total_error = tf.add(total_error, deg_error)
+    tf.Print(total_error,[total_error], 'total_error')
     # Return the number of true entries.
     return total_error
 
 
 def regularize_normals(logits):
   normals = tf.split(logits, LIGHT_NUMBER, axis=1)
+  real_normals = []
   for normal in normals:
     normal = regularize_normals_sub(normal)
-  logits = tf.concat(normals, 1)
+    real_normals.append(normal)
+  logits = tf.concat(real_normals, 1)
+  tf.Print(tf.shape(logits), [tf.shape(logits)], 'can this be...')
   return logits
 
 def regularize_normals_sub(logits):
+    tf.Print(tf.shape(logits), [tf.shape(logits)], 'can this be?')
     pow_para = tf.zeros(tf.shape(logits))+2
     squared = tf.pow(logits,pow_para)
     sqr_sum = tf.reduce_sum(squared, 1)

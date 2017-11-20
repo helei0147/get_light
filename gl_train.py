@@ -41,7 +41,7 @@ from datetime import datetime
 import time
 
 import tensorflow as tf
-
+from tensorflow.python import debug as tfdbg
 import gl
 
 parser = gl.parser
@@ -61,6 +61,7 @@ parser.add_argument('--log_frequency', type=int, default=10,
 
 def train():
   """Train CIFAR-10 for a number of steps."""
+
   with tf.Graph().as_default():
     global_step = tf.contrib.framework.get_or_create_global_step()
 
@@ -115,6 +116,8 @@ def train():
         config=tf.ConfigProto(
             log_device_placement=FLAGS.log_device_placement)) as mon_sess:
       while not mon_sess.should_stop():
+#        mon_sess = tfdbg.LocalCLIDebugWrapperSession(mon_sess)
+#        mon_sess.add_tensor_filter("has_inf_or_nan", tfdbg.has_nan_or_inf)
         mon_sess.run([train_op, check_op])
 
 

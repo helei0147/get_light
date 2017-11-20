@@ -51,7 +51,7 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
   """
   # Create a queue that shuffles the examples, and then
   # read 'batch_size' images + labels from the example queue.
-  block_frame = 16
+  block_frame = 5
   num_preprocess_threads = 16
   if shuffle:
     images, label_batch = tf.train.shuffle_batch(
@@ -88,12 +88,14 @@ def inputs(eval_data, data_dir, batch_size):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['data_tiny/%d.tfrecord'%(i) for i in range(4)]
+    filenames = ['continuous_data/%d.tfrecord'%(i) for i in range(4)]
+    #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
 
   else:
-    filenames = ['data_tiny/%d.tfrecord'%(i) for i in range(4,5)]
+    filenames = ['continuous_data/%d.tfrecord'%(i) for i in range(4,5)]
+    #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4,5)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
@@ -111,16 +113,16 @@ def inputs(eval_data, data_dir, batch_size):
   image = tf.decode_raw(features['image'], tf.float32)
   light = tf.decode_raw(features['light'], tf.float64)
 
-  image = tf.reshape(image,[16, 32, 32, 1])
-  light = tf.reshape(light, [48])
+  image = tf.reshape(image,[5, 32, 32, 1])
+  light = tf.reshape(light, [15])
 #  tf.Print(image, [image], 'image:')
   height = IMAGE_SIZE
   width = IMAGE_SIZE
 
 
   # Set the shapes of tensors.
-  image.set_shape([16, height, width, 1])
-  light.set_shape([48])
+  image.set_shape([5, height, width, 1])
+  light.set_shape([15])
   light = tf.cast(light, tf.float32)
 
   # Ensure that the random shuffling has good mixing properties.
