@@ -115,6 +115,7 @@ def inputs(eval_data, data_dir, batch_size):
 
   image = tf.reshape(image,[5, 32, 32, 1])
   light = tf.reshape(light, [15])
+  tf.Assert(tf.count_nonzero(light>10)==0,[light])
 #  tf.Print(image, [image], 'image:')
   height = IMAGE_SIZE
   width = IMAGE_SIZE

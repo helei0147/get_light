@@ -55,7 +55,7 @@ parser.add_argument('--max_steps', type=int, default=10000,
 parser.add_argument('--log_device_placement', type=bool, default=False,
                     help='Whether to log device placement.')
 
-parser.add_argument('--log_frequency', type=int, default=10,
+parser.add_argument('--log_frequency', type=int, default=1,
                     help='How often to log results to the console.')
 
 

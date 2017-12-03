@@ -49,7 +49,7 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=1024,
+parser.add_argument('--batch_size', type=int, default=1,
                     help='Number of images to process in a batch.')
 
 parser.add_argument('--data_dir', type=str, default='data_small',
@@ -69,8 +69,8 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
 NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.001       # Initial learning rate.
+LEARNING_RATE_DECAY_FACTOR = 0.6  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.5       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -160,7 +160,7 @@ def inputs(eval_data):
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
   images, labels = gl_input.inputs(eval_data=eval_data,
-                                        data_dir='data_tiny/',
+                                        data_dir='continuous_data/',
                                         batch_size=FLAGS.batch_size)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
@@ -251,6 +251,10 @@ def inference(images):
                               tf.constant_initializer(0.0))
     softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
     #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"\n\n\nsoftmax_linear: ")
+
+    softmax_linear = regularize_normals(softmax_linear)
+    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"\n\n\nsoftmax_linear: ")
+
     _activation_summary(softmax_linear)
 
   return softmax_linear
@@ -343,8 +347,10 @@ def loss(est_normals, gts):
     """
   #tf.assign(est_normals, regularize_normals(est_normals))
   est_normals = regularize_normals(est_normals)
-  gts = regularize_normals(gts)
-  #tf.Print(est_normals, [est_normals], '\n\n\n\nestimated: ')
+  assert_op = tf.Assert(tf.count_nonzero(gts>10)==0,[gts])
+  assert_op.mark_used()
+  gts = tf.Print(gts, [gts], 'ground truth: ')
+  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
 
   est_colle = tf.split(est_normals, LIGHT_NUMBER, axis=1)
   gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
@@ -355,7 +361,7 @@ def loss(est_normals, gts):
     rad_error = tf.acos(cos_error)
     deg_error = rad_error/3.1415926*180
     loss = loss + tf.reduce_sum(deg_error)
-  tf.Print(loss, [loss], '\nloss:')
+  #loss = tf.Print(loss, [loss], '\nloss:')
   return loss
 
 def evaluation(logits, labels):
@@ -369,9 +375,9 @@ def evaluation(logits, labels):
       total error in degree for this batch
     """
     # regularize estimated normal(logits)
-    print('fuck\nfuck\n\nfuck\n')
+    labels = tf.Print(labels, [labels], 'original light directions:')
     est = regularize_normals(logits)
-    gts = regularize_normals(labels)
+    est = tf.Print(est, [est], 'estimated: ')
     est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
     gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
     for i in range(LIGHT_NUMBER):
@@ -389,23 +395,31 @@ def evaluation(logits, labels):
 
 
 def regularize_normals(logits):
+
   normals = tf.split(logits, LIGHT_NUMBER, axis=1)
   real_normals = []
   for normal in normals:
+    #normal = tf.Print(normal, [normal], '\nunregularized: ')
     normal = regularize_normals_sub(normal)
+    #normal = tf.Print(normal, [normal], '\nregularized normal:')
     real_normals.append(normal)
   logits = tf.concat(real_normals, 1)
-  tf.Print(tf.shape(logits), [tf.shape(logits)], 'can this be...')
   return logits
 
 def regularize_normals_sub(logits):
-    tf.Print(tf.shape(logits), [tf.shape(logits)], 'can this be?')
-    pow_para = tf.zeros(tf.shape(logits))+2
-    squared = tf.pow(logits,pow_para)
-    sqr_sum = tf.reduce_sum(squared, 1)
-    pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
-    normal_lengths = tf.pow(sqr_sum,pow_para)
-    normal_lengths = tf.expand_dims(normal_lengths,1)
-    weight = tf.concat([normal_lengths, normal_lengths, normal_lengths], axis=1)
-    regulared = tf.divide(logits,weight)
-    return regulared
+  dims = tf.split(logits,3, axis=1)
+  weight = tf.abs(dims[0])
+  weight = tf.concat([weight, weight, weight], axis=1)
+  logits = tf.divide(logits, weight)
+  #logits = tf.Print(logits, [logits], 'normal:')
+  pow_para = tf.zeros(tf.shape(logits))+2
+  squared = tf.pow(logits,pow_para)
+  sqr_sum = tf.reduce_sum(squared, 1)
+  pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
+  normal_lengths = tf.pow(sqr_sum,pow_para)
+  #normal_lengths = tf.Print(normal_lengths, [normal_lengths], 'normal_len:')
+  normal_lengths = tf.expand_dims(normal_lengths,1)
+  weight = tf.concat([normal_lengths, normal_lengths, normal_lengths], axis=1)
+  #weight = tf.Print(weight, [weight], '\n weight:')
+  regulared = tf.divide(logits,weight)
+  return regulared
