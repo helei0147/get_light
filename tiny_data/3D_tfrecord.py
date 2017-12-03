@@ -9,9 +9,9 @@ def _floats_feature(value):
 def _byte_feature(value):
     return tf.train.Feature(bytes_list = tf.train.BytesList(value = [value]))
 
-img_folder = 'light_npy/'
+img_folder = 'light_npy_cut/'
 npy_buffer = []
-picked_number = 16
+picked_number = 5
 # read in lights
 light_buffer = np.load('light_directions.npy')
 light_number = light_buffer.shape[0]
@@ -30,8 +30,8 @@ index_buffer = index_buffer.tolist()
 for f in range(5):
     block_buffer = []
     block_light = []
-    writer = tf.python_io.TFRecordWriter('data_tiny/%d.tfrecord'%(f))
-    for i in range(20000):
+    writer = tf.python_io.TFRecordWriter('slim_data/%d.tfrecord'%(f))
+    for i in range(40000):
         material_index = random.randint(0,19)
         pos_index = random.randint(0,pos_num-1)
         random.shuffle(index_buffer)
