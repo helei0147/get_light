@@ -52,20 +52,20 @@ parser.add_argument('--eval_dir', type=str, default='/tmp/gl_eval',
 parser.add_argument('--eval_data', type=str, default='test',
                     help='Either `test` or `train_eval`.')
 
-parser.add_argument('--checkpoint_dir', type=str, default='data',
+parser.add_argument('--checkpoint_dir', type=str, default='data_tiny',
                     help='Directory where to read model checkpoints.')
 
 parser.add_argument('--eval_interval_secs', type=int, default=60*5,
                     help='How often to run the eval.')
 
-parser.add_argument('--num_examples', type=int, default=10000,
+parser.add_argument('--num_examples', type=int, default=23940,
                     help='Number of examples to run.')
 
-parser.add_argument('--run_once', type=bool, default=False,
+parser.add_argument('--run_once', type=bool, default=True,
                     help='Whether to run eval only once.')
 
 
-def eval_once(saver, summary_writer, result, summary_op):
+def eval_once(saver, summary_writer, result, summary_op, labels):
   """Run Eval once.
 
   Args:
@@ -74,6 +74,7 @@ def eval_once(saver, summary_writer, result, summary_op):
     top_k_op: Top K op.
     summary_op: Summary op.
   """
+  prediction_buffer = []
   with tf.Session() as sess:
     ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
@@ -92,19 +93,22 @@ def eval_once(saver, summary_writer, result, summary_op):
     for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
         threads.extend(qr.create_threads(sess, coord = coord, daemon = True, start = True))
     num_iter = int(math.ceil(FLAGS.num_examples/FLAGS.batch_size))
+    print('\n\n\nnum_iter')
+    print(num_iter)
     total_error = 0
     total_sample_count = num_iter*FLAGS.batch_size
     step = 0
+    labels_buffer = []
     while step<num_iter and not coord.should_stop():
-      print('\n\nrum result\n\n')
       prediction = sess.run([result])
-      print('\n\nrun finished\n\n')
-      print(prediction)
-      print('\n\nlen prediction:%f'%(len(prediction[0])))
-      print(np.sum(prediction)/len(prediction[0]))
+      ori_labels = sess.run([labels])
+      prediction_buffer.append(prediction[0])
+      labels_buffer.append(ori_labels[0])
+      # print(prediction)
+      #print('\n\nlen prediction:%f'%(len(prediction[0])))
+      #print(np.sum(prediction)/len(prediction[0]))
       total_error += np.sum(prediction[0])
       step+=1
-      print('\n\nresult end\n\n')
     precision = total_error/total_sample_count
     print('precision: %.5f'%(precision))
     summary = tf.Summary()
@@ -114,14 +118,21 @@ def eval_once(saver, summary_writer, result, summary_op):
 
     coord.request_stop()
     coord.join(threads, stop_grace_period_secs = 10)
+  prediction_buffer = np.array(prediction_buffer)
+  ori_labels = np.array(labels_buffer)
+  return prediction_buffer, ori_labels
 
 
 def evaluate():
   """Eval CIFAR-10 for a number of steps."""
+  fuck_labels = []
   with tf.Graph().as_default() as g:
     # Get images and labels for CIFAR-10.
+    p_buffer = []
+    gt_buffer = []
     eval_data = FLAGS.eval_data == 'test'
     images, labels = gl.inputs(eval_data)
+    fuck_labels.append(labels)
 
     # Build a Graph that computes the logits predictions from the
     # inference model.
@@ -137,14 +148,23 @@ def evaluate():
     summary_op = tf.summary.merge_all()
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
-
+    p_cnt = 0
     while True:
       print('\n\neval_once\n\n')
-      eval_once(saver, summary_writer, result, summary_op)
+      prediction_buffer, ori_labels = eval_once(saver, summary_writer, result, summary_op, labels)
+      p_buffer.append(prediction_buffer)
+      gt_buffer.append(ori_labels)
+      np.save('predicted/p%d.npy'%(p_cnt), prediction_buffer)
+      p_cnt = p_cnt+1
       if FLAGS.run_once:
         break
-      time.sleep(3)
-
+    p_buffer = np.array(p_buffer)
+    if p_buffer.shape[0]==1:
+      np.save('eval_playground/p.npy', p_buffer[0])
+      np.save('eval_playground/gt.npy', gt_buffer[0])
+    else:
+      np.save('eval_playground/p.npy', p_buffer)
+      np.save('eval_playground/gt.npy', gt_buffer)
 
 def main(argv=None):  # pylint: disable=unused-argument
   tf.gfile.MakeDirs(FLAGS.eval_dir)

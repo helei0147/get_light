@@ -40,6 +40,8 @@ import argparse
 from datetime import datetime
 import time
 
+import numpy as np
+
 import tensorflow as tf
 from tensorflow.python import debug as tfdbg
 import gl
@@ -49,13 +51,13 @@ parser = gl.parser
 parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
-parser.add_argument('--max_steps', type=int, default=10000,
+parser.add_argument('--max_steps', type=int, default=100000,
                     help='Number of batches to run.')
 
 parser.add_argument('--log_device_placement', type=bool, default=False,
                     help='Whether to log device placement.')
 
-parser.add_argument('--log_frequency', type=int, default=1,
+parser.add_argument('--log_frequency', type=int, default=100,
                     help='How often to log results to the console.')
 
 
@@ -76,7 +78,7 @@ def train():
     logits = gl.inference(images)
 
     # Calculate loss.
-    loss = gl.loss(logits, labels)
+    loss = gl.loss_2(logits, labels)
 
     # Build a Graph that trains the model with one batch of examples and
     # updates the model parameters.
@@ -115,10 +117,16 @@ def train():
                _LoggerHook()],
         config=tf.ConfigProto(
             log_device_placement=FLAGS.log_device_placement)) as mon_sess:
+      buffer_labels = []
+      buffer_logits = []
       while not mon_sess.should_stop():
 #        mon_sess = tfdbg.LocalCLIDebugWrapperSession(mon_sess)
 #        mon_sess.add_tensor_filter("has_inf_or_nan", tfdbg.has_nan_or_inf)
-        mon_sess.run([train_op, check_op])
+        _0, _1, np_labels, np_logits = mon_sess.run([train_op, check_op, labels, logits])
+        buffer_labels.append(np_labels)
+        buffer_logits.append(np_logits)
+      np.save('train_playground/np_labels.npy', np.array(buffer_labels))
+      np.save('train_playground/np_logits.npy', np.array(buffer_logits))
 
 
 def main(argv=None):  # pylint: disable=unused-argument

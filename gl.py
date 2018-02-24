@@ -49,10 +49,10 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=1,
+parser.add_argument('--batch_size', type=int, default=32,
                     help='Number of images to process in a batch.')
 
-parser.add_argument('--data_dir', type=str, default='data_small',
+parser.add_argument('--data_dir', type=str, default='---',
                     help='Path to the CIFAR-10 data directory.')
 
 parser.add_argument('--use_fp16', type=bool, default=False,
@@ -69,8 +69,8 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
 NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.6  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.5       # Initial learning rate.
+LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.1       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -170,6 +170,30 @@ def inputs(eval_data):
 def check_input(images, lights):
   return images[0,:,:]
 
+def batch_norm(inputs_, phase_train=True, decay=0.9, eps=1e-5):
+    """Batch Normalization
+
+       Args:
+           inputs_: input data(Batch size) from last layer
+           phase_train: when you test, please set phase_train "None"
+       Returns:
+           output for next layer
+    """
+    gamma = tf.get_variable("gamma", shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+    beta = tf.get_variable("beta", shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(0.0))
+    pop_mean = tf.get_variable("pop_mean", trainable=False, shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(0.0))
+    pop_var = tf.get_variable("pop_var", trainable=False, shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+    axes = list(range(len(inputs_.get_shape()) - 1))
+
+    if phase_train != None:
+        batch_mean, batch_var = tf.nn.moments(inputs_, axes)
+        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean*(1 - decay))
+        train_var = tf.assign(pop_var, pop_var * decay + batch_var * (1 - decay))
+        with tf.control_dependencies([train_mean, train_var]):
+            return tf.nn.batch_normalization(inputs_, batch_mean, batch_var, beta, gamma, eps)
+    else:
+        return tf.nn.batch_normalization(inputs_, pop_mean, pop_var, beta, gamma, eps)
+
 def inference(images):
   """Build the CIFAR-10 model.
 
@@ -194,13 +218,15 @@ def inference(images):
     biases = _variable_on_cpu('biases', [16], tf.constant_initializer(0.0))
     pre_activation = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(pre_activation, name=scope.name)
+
+    # batch normalization
+    conv1 = batch_norm(conv1, True)
+
     _activation_summary(conv1)
-    tf.Print(tf.shape(conv1), [tf.shape(conv1)])
+    #tf.Print(tf.shape(conv1), [tf.shape(conv1)])
   # pool1
-  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 1, 1], strides=[1, 2, 2, 1, 1],
+  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 2, 1], strides=[1, 2, 2, 2, 1],
                          padding='SAME', name='pool1')
-  # norm1
-  #norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm1')
 
   # conv2
   with tf.variable_scope('conv2') as scope:
@@ -212,14 +238,17 @@ def inference(images):
     biases = _variable_on_cpu('biases', [32], tf.constant_initializer(0.1))
     pre_activation = tf.nn.bias_add(conv, biases)
     conv2 = tf.nn.relu(pre_activation, name=scope.name)
-    _activation_summary(conv2)
 
+    #batch normalization
+    conv2 = batch_norm(conv2, True)
+
+    _activation_summary(conv2)
   # norm2
   #norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
   #                  name='norm2')
   # pool2
-  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 1, 1],
-                         strides=[1, 2, 2, 1, 1], padding='SAME', name='pool2')
+  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 2, 1],
+                         strides=[1, 2, 2, 2, 1], padding='SAME', name='pool2')
 
   # local3
   with tf.variable_scope('local3') as scope:
@@ -341,23 +370,37 @@ def train(total_loss, global_step):
 
   return train_op
 
+def loss_2(est_normals, gts):
+  #est_normals = regularize_normals(est_normals)
+  gts = tf.Print(gts, [gts], 'ground truth: ')
+  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals, gts))))
+
 def loss(est_normals, gts):
   """Calculates the loss from the logits and the labels.
 
     """
   #tf.assign(est_normals, regularize_normals(est_normals))
   est_normals = regularize_normals(est_normals)
-  assert_op = tf.Assert(tf.count_nonzero(gts>10)==0,[gts])
-  assert_op.mark_used()
-  gts = tf.Print(gts, [gts], 'ground truth: ')
-  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  #assert_op = tf.Assert(tf.count_nonzero(gts>10)==0,[gts])
+  #assert_op.mark_used()
+  # gts = tf.Print(gts, [gts], 'ground truth: ')
+  # est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
 
   est_colle = tf.split(est_normals, LIGHT_NUMBER, axis=1)
   gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
   loss = 0
+
   for i in range(LIGHT_NUMBER):
     error = tf.multiply(est_colle[i], gts_colle[i])
     cos_error = tf.reduce_sum(error, 1)
+    # tf.boolean_mask(cos_error,cos_error>1).assign(1)
+    # tf.boolean_mask(cos_error,cos_error<-1).assign(-1)
+    max_cos = tf.reduce_max(tf.abs(cos_error))
+    cos_error = tf.cond(max_cos>1, lambda: tf.div(cos_error, max_cos), lambda: cos_error)
+
+    #tf.scatter_update(cos_error,cos_error>1, 1)
+    #tf.scatter_update(cos_error,cos_error<-1, -1)
     rad_error = tf.acos(cos_error)
     deg_error = rad_error/3.1415926*180
     loss = loss + tf.reduce_sum(deg_error)
@@ -375,21 +418,25 @@ def evaluation(logits, labels):
       total error in degree for this batch
     """
     # regularize estimated normal(logits)
-    labels = tf.Print(labels, [labels], 'original light directions:')
-    est = regularize_normals(logits)
-    est = tf.Print(est, [est], 'estimated: ')
-    est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
-    gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
-    for i in range(LIGHT_NUMBER):
-      error = tf.multiply(logits, labels)
-      cos_error = tf.reduce_sum(error, 1)
-      rad_error = tf.acos(cos_error)
-      deg_error = rad_error/3.1415926*180
-      if i==0:
-        total_error = deg_error
-      else:
-        total_error = tf.add(total_error, deg_error)
-    tf.Print(total_error,[total_error], 'total_error')
+    # labels = tf.Print(labels, [labels], 'original light directions:')
+    # logits = tf.Print(logits, [logits], 'estimated： ')
+    error = tf.abs(tf.subtract(logits, labels))
+    #error = tf.Print(error, [error], 'error: ')
+    total_error = tf.abs(tf.subtract(logits, labels))
+    # est = regularize_normals(logits)
+    # est = tf.Print(est, [est], 'estimated: ')
+    # est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
+    # gts_colle = tf.split(labels, LIGHT_NUMBER, axis=1)
+    # for i in range(LIGHT_NUMBER):
+    #   error = tf.multiply(logits, labels)
+    #   cos_error = tf.reduce_sum(error, 1)
+    #   rad_error = tf.acos(cos_error)
+    #   deg_error = rad_error/3.1415926*180
+    #   if i==0:
+    #     total_error = deg_error
+    #   else:
+    #     total_error = tf.add(total_error, deg_error)
+    # tf.Print(total_error,[total_error], 'total_error')
     # Return the number of true entries.
     return total_error
 
