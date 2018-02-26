@@ -40,21 +40,23 @@ for f in range(5):
     npy_light_buffer = []
     for i in range(40000):
         material_index = random.randint(0,19)
+        #pos_index = random.randint(0,pos_num-1)
         pos_index = random.randint(0,pos_num-1)
+
         # path
-        path_index = random.randint(0, 5)
+        path_index = random.randint(0, 20)
         picked_index = path_container[path_index, :]
 
         picked_light = light_buffer[picked_index, :]
         picked_frames = npy_buffer[picked_index, pos_index, :, :, material_index]
         picked_frames = np.reshape(picked_frames, [picked_number, height, width])
-        '''
+
         canvas = np.zeros([height, width * picked_number])
         for f_ind in range(picked_number):
             canvas[:, f_ind*width:(f_ind+1)*width]=picked_frames[f_ind, :, :]
         pic_name = 'pics/pos_%d-mat_%d-path_%d.png'%(pos_index, material_index, path_index)
         imsave(pic_name, canvas)
-        '''
+
         # append to save npy
         npy_frame_buffer.append(picked_frames)
         npy_light_buffer.append(picked_light)
