@@ -250,6 +250,38 @@ def inference(images):
   pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 2, 1],
                          strides=[1, 2, 2, 2, 1], padding='SAME', name='pool2')
 
+  with tf.variable_scope('LSTM') as scope:
+    NUM_HIDDEN = 128 #hidden units in lstm
+    MAX_STEPSIZE = 32 # channel number
+    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1, MAX_STEPSIZE])
+    reshape = tf.tranpose(reshape, [0, 2, 1])
+    dim = reshape.get_shape()[2].value
+    reshape.set_shape([FLAGS.batch_size, MAX_STEPSIZE, dim])
+
+    cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
+    if FLAGS.eval_data!='test':
+      cell = tf.contrib.rnn.DropoutWrapper(cell = cell, output_keep_prob=0.8)
+    cell1 = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
+    if FLAGS.eval_data!='test':
+      cell1 = tf.contrib.rnn.DropoutWrapper(cell = cell1, output_keep_prob=0.8)
+    # stacking rnn cells
+    stack = tf.contrib.rnn.MultiRNNCell([cell, cell1], state_is_tuple=True)
+    outputs, _ = tf.nn.dynamic_rnn(stack, reshape, dtype = tf.float32)
+    outputs = tf.reshape(outputs, [-1, NUM_HIDDEN])
+    W = tf.get_variable(name='W',
+                        shape=[NUM_HIDDEN, LIGHT_NUMBER*3],
+                        dtype=tf.float32,
+                        initializer=tf.contrib.layers.xavier_initializer())
+    b = tf.get_variable(name='b',
+                        shape=[LIGHT_NUMBER*3],
+                        dtype=tf.float32,
+                        initializer=tf.constant_initializer())
+    result=tf.matmul(outputs, W) + b
+    shape = tf.shape(reshape)
+    result = tf.reshape(result, [shape[0], -1, LIGHT_NUM*3])
+    # Time major, shape of result is [time, batch_size, LIGHT_NUM*3]
+    result = tf.transpose(result, (1,0,2))
+
   # local3
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
