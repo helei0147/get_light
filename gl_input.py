@@ -72,7 +72,7 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
 
   return images, tf.reshape(label_batch, [batch_size, 3*LIGHT_NUM])
 
-def inputs(eval_data, data_dir, batch_size, if_shuffle=False):
+def inputs(eval_data, data_dir, batch_size, if_shuffle=True):
   """Construct input for CIFAR evaluation using the Reader ops.
 
   Args:
