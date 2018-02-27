@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot
 
 def cal_deg(logits, gt):
     batch_size, light_num = logits.shape
@@ -37,7 +38,7 @@ def normalize_vec(vec):
     vec = vec/length
     return vec
 
-if __name__ == '__main__':
+def main():
     labels = np.load('gt.npy')
     logits = np.load('p.npy')
     batch_num, batch_size, light_dims = labels.shape
@@ -46,3 +47,16 @@ if __name__ == '__main__':
         degs = cal_deg(logits[i], labels[i])
         deg_buffer.append(degs)
     np.save('degs.npy', np.array(deg_buffer))
+
+def dis_deg():
+    a = np.load('degs.npy')
+    shape = a.shape
+    b = np.sum(a, axis=2)
+    group_num = shape[0]*shape[1]
+    avg = np.sum(b)/group_num
+    med = np.median(b[:])
+    print('avg:', avg, 'med:', med)
+    # distribution
+    return pyplot.hist(b[:],1000)
+if __name__ == '__main__':
+    main()
