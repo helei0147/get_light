@@ -193,132 +193,76 @@ def batch_norm(inputs_, phase_train=True, decay=0.9, eps=1e-5):
             return tf.nn.batch_normalization(inputs_, batch_mean, batch_var, beta, gamma, eps)
     else:
         return tf.nn.batch_normalization(inputs_, pop_mean, pop_var, beta, gamma, eps)
-
-def inference(images):
-  """Build the CIFAR-10 model.
-
-  Args:
-    images: Images returned from distorted_inputs() or inputs().
-
-  Returns:
-    Logits.
-  """
-  # We instantiate all variables using tf.get_variable() instead of
-  # tf.Variable() in order to share variables across multiple GPU training runs.
-  # If we only ran this model on a single GPU, we could simplify this function
-  # by replacing all instances of tf.get_variable() with tf.Variable().
-  #
-  # conv1
-  with tf.variable_scope('conv1') as scope:
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 3, 1, 16],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv3d(images, kernel, [1, 1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [16], tf.constant_initializer(0.0))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv1 = tf.nn.relu(pre_activation, name=scope.name)
-
-    # batch normalization
-    conv1 = batch_norm(conv1, True)
-
+def cnn_layers(images):
+  with tf.variable_scope('cnns'):
+    conv1 = tf.nn.conv2d(
+      input=images,
+      filter = [7,7,6,64],
+      padding='same',
+      strides=2,
+      name='conv1'
+    )
     _activation_summary(conv1)
-    #tf.Print(tf.shape(conv1), [tf.shape(conv1)])
-  # pool1
-  pool1 = tf.nn.max_pool3d(conv1, ksize=[1, 2, 2, 2, 1], strides=[1, 2, 2, 2, 1],
-                         padding='SAME', name='pool1')
-
-  # conv2
-  with tf.variable_scope('conv2') as scope:
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 3, 16, 32],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv3d(pool1, kernel, [1, 1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [32], tf.constant_initializer(0.1))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv2 = tf.nn.relu(pre_activation, name=scope.name)
-
-    #batch normalization
-    conv2 = batch_norm(conv2, True)
-
+    conv2 = tf.nn.conv2d(
+      input=conv1,
+      filter = [5,5,64,128],
+      padding='same',
+      strides=1,
+      name='conv2'
+    )
     _activation_summary(conv2)
-  # norm2
-  #norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-  #                  name='norm2')
-  # pool2
-  pool2 = tf.nn.max_pool3d(conv2, ksize=[1, 2, 2, 2, 1],
-                         strides=[1, 2, 2, 2, 1], padding='SAME', name='pool2')
-
-  with tf.variable_scope('LSTM') as scope:
-    NUM_HIDDEN = 128 #hidden units in lstm
-    MAX_STEPSIZE = 32 # channel number
-    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1, MAX_STEPSIZE])
-    reshape = tf.tranpose(reshape, [0, 2, 1])
-    dim = reshape.get_shape()[2].value
-    reshape.set_shape([FLAGS.batch_size, MAX_STEPSIZE, dim])
-
-    cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
-    if FLAGS.eval_data!='test':
-      cell = tf.contrib.rnn.DropoutWrapper(cell = cell, output_keep_prob=0.8)
+    conv3 = tf.nn.conv2d(
+      input=conv2,
+      filter=[3,3,128,256],
+      padding='same',
+      strides=2,
+      name='conv3'
+    )
+    _activation_summary(conv3)
+    conv4 = tf.nn.conv2d(
+      input=conv3,
+      filter=[3,3,256,512],
+      padding='same',
+      strides=1,
+      name='conv4'
+    )
+    _activation_summary(conv4)
+  return conv4
+def build_rcnn_graph(stacked_images):
+  NUM_HIDDEN = 500 #hidden units in lstm
+  MAX_STEPSIZE = 5
+  cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
+  if FLAGS.eval_data!='test':
+    cell = tf.contrib.rnn.DropoutWrapper(cell = cell, output_keep_prob=0.8)
     cell1 = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
     if FLAGS.eval_data!='test':
       cell1 = tf.contrib.rnn.DropoutWrapper(cell = cell1, output_keep_prob=0.8)
-    # stacking rnn cells
-    stack = tf.contrib.rnn.MultiRNNCell([cell, cell1], state_is_tuple=True)
-    outputs, _ = tf.nn.dynamic_rnn(stack, reshape, dtype = tf.float32)
-    outputs = tf.reshape(outputs, [-1, NUM_HIDDEN])
-    W = tf.get_variable(name='W',
-                        shape=[NUM_HIDDEN, LIGHT_NUMBER*3],
-                        dtype=tf.float32,
-                        initializer=tf.contrib.layers.xavier_initializer())
-    b = tf.get_variable(name='b',
-                        shape=[LIGHT_NUMBER*3],
-                        dtype=tf.float32,
-                        initializer=tf.constant_initializer())
-    result=tf.matmul(outputs, W) + b
-    shape = tf.shape(reshape)
-    result = tf.reshape(result, [shape[0], -1, LIGHT_NUM*3])
-    # Time major, shape of result is [time, batch_size, LIGHT_NUM*3]
-    result = tf.transpose(result, (1,0,2))
+      # stacking rnn cells
+  stack = tf.contrib.rnn.MultiRNNCell([cell, cell1], state_is_tuple=True)
+  temp_inputs = []
+  for stack_im in stacked_images:
+    temp_inputs.append(cnn_layers(stack_im))
+  rnn_inputs = [tf.reshape(temp_inputs[i],[FLAGS.batch_size, -1]) for i in range(MAX_STEPSIZE)]
+  outputs, states = tf.nn.static_rnn(stack, rnn_inputs, dtype=tf.float32)
+  W = tf.get_variable(name='W',
+                      shape=[NUM_HIDDEN, LIGHT_NUMBER*3],
+                      dtype=tf.float32,
+                      initializer=tf.contrib.layers.xavier_initializer())
+  b = tf.get_variable(name='b',
+                      shape=[LIGHT_NUMBER*3],
+                      dtype=tf.float32,
+                      initializer=tf.constant_initializer())
+  light_est = [tf.nn.xw_plus_b(output_state, W, b) for output_state in outputs]
+  light_est = tf.reshape(light_est, [FLAGS.batch_size, LIGHT_NUMBER*3])
+  return light_est
 
-  # local3
-  with tf.variable_scope('local3') as scope:
-    # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
-    dim = reshape.get_shape()[1].value
-    weights = _variable_with_weight_decay('weights', shape=[dim, 384],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
-    local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
-    _activation_summary(local3)
+def inference(images):
+  '''
+  images is tensor with shape [32, 32, LIGHT_NUM*3]
+  '''
+  light_est = build_rcnn_graph(images)
 
-  # local4
-  with tf.variable_scope('local4') as scope:
-    weights = _variable_with_weight_decay('weights', shape=[384, 192],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
-    local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
-    _activation_summary(local4)
-
-  # linear layer(WX + b),
-  # We don't apply softmax here because
-  # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
-  # and performs the softmax internally for efficiency.
-  with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, LIGHT_NUMBER*3],
-                                          stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [LIGHT_NUMBER*3],
-                              tf.constant_initializer(0.0))
-    softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
-    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"\n\n\nsoftmax_linear: ")
-
-    softmax_linear = regularize_normals(softmax_linear)
-    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"\n\n\nsoftmax_linear: ")
-
-    _activation_summary(softmax_linear)
-
-  return softmax_linear
+  return light_est
 
 def _add_loss_summaries(total_loss):
   """Add summaries for losses in CIFAR-10 model.
