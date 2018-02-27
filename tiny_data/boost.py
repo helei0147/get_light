@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from scipy import misc
 LIGHT_NUMBER = 5
-npy_file_num = 8
+npy_file_num = 40
 for i in range(npy_file_num):
     frames = np.load('%d.npy'%(i))
     block_num = frames.shape[0]//LIGHT_NUMBER
@@ -16,10 +16,6 @@ for i in range(npy_file_num):
         frame_num, height, width = block.shape
         canvas = np.zeros([height, width])
         generated = []
-        # 生成两帧之间的差
-        for sub in range(frame_num-1):
-            canvas = block[sub+1, :, :] - block[sub, :, :]+0.5
-            generated.append(canvas)
         # sobel 算子生成梯度图
         for frame in range(frame_num):
             sobelx = cv2.Sobel(block[frame,:,:], cv2.CV_64F, 1, 0,ksize=5)
@@ -29,7 +25,7 @@ for i in range(npy_file_num):
             generated.append(sobely)
         generated = np.array(generated)
         new_block = np.concatenate((block,generated), axis=0)
-        # print('new_block shape: ', new_block.shape)
+        print('new_block shape: ', new_block.shape)
         # canv = new_block
         # h_b_ori = np.max(canv[0:5,:,:])
         # canv[0:5,:,:] = canv[0:5,:,:]/h_b_ori*255
