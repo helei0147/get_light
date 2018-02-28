@@ -61,6 +61,7 @@ parser.add_argument('--log_frequency', type=int, default=100,
                     help='How often to log results to the console.')
 
 
+
 def train():
   """Train CIFAR-10 for a number of steps."""
 
@@ -75,6 +76,7 @@ def train():
     check_op = tf.add_check_numerics_ops()
     # Build a Graph that computes the logits predictions from the
     # inference model.
+    a = tf.Print(images.shape, [images.shape])
     logits = gl.inference(images)
 
     # Calculate loss.

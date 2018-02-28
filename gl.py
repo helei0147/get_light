@@ -57,7 +57,8 @@ parser.add_argument('--data_dir', type=str, default='---',
 
 parser.add_argument('--use_fp16', type=bool, default=False,
                     help='Train the model using fp16.')
-
+parser.add_argument('--eval_data', type=str, default='train',
+                    help='if train, use train.use test otherwise')
 FLAGS = parser.parse_args()
 
 # Global constants describing the CIFAR-10 data set.
@@ -77,7 +78,7 @@ INITIAL_LEARNING_RATE = 0.1       # Initial learning rate.
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
 
-LIGHT_NUMBER = 5
+LIGHT_NUMBER = 4
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
 
@@ -193,44 +194,85 @@ def batch_norm(inputs_, phase_train=True, decay=0.9, eps=1e-5):
             return tf.nn.batch_normalization(inputs_, batch_mean, batch_var, beta, gamma, eps)
     else:
         return tf.nn.batch_normalization(inputs_, pop_mean, pop_var, beta, gamma, eps)
-def cnn_layers(images):
-  with tf.variable_scope('cnns'):
-    conv1 = tf.nn.conv2d(
-      input=images,
-      filter = [7,7,6,64],
-      padding='same',
-      strides=2,
-      name='conv1'
-    )
-    _activation_summary(conv1)
-    conv2 = tf.nn.conv2d(
-      input=conv1,
-      filter = [5,5,64,128],
-      padding='same',
-      strides=1,
-      name='conv2'
-    )
-    _activation_summary(conv2)
-    conv3 = tf.nn.conv2d(
-      input=conv2,
-      filter=[3,3,128,256],
-      padding='same',
-      strides=2,
-      name='conv3'
-    )
-    _activation_summary(conv3)
-    conv4 = tf.nn.conv2d(
-      input=conv3,
-      filter=[3,3,256,512],
-      padding='same',
-      strides=1,
-      name='conv4'
-    )
-    _activation_summary(conv4)
+def cnn_layers(images,reuse):
+  with tf.variable_scope('cnns', reuse=reuse) as scope:
+    with tf.variable_scope('conv1') as scp:
+      kernel1 = _variable_with_weight_decay(
+        'weights1',
+        shape=[7, 7, 6, 64],
+        stddev=5e-2,
+        wd=0.0
+      )
+      conv1 = tf.nn.conv2d(
+        input=images,
+        filter = kernel1,
+        padding='SAME',
+        strides=[1,2,2,1],
+        name='conv1'
+      )
+      biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+      pre_activation = tf.nn.bias_add(conv1, biases)
+      conv1 = tf.nn.relu(pre_activation, name=scp.name)
+      conv1 = batch_norm(conv1, True)
+      _activation_summary(conv1)
+    with tf.variable_scope('conv2') as scp:
+      kernel2 = _variable_with_weight_decay(
+        'weights2',
+        shape=[5,5,64,128],
+        stddev=5e-2,
+        wd=0.0)
+      conv2 = tf.nn.conv2d(
+        input=conv1,
+        filter = kernel2,
+        padding='SAME',
+        strides=[1,1,1,1],
+        name='conv2'
+      )
+      biases = _variable_on_cpu('biases', [128], tf.constant_initializer(0.0))
+      pre_activation = tf.nn.bias_add(conv2, biases)
+      conv2 = tf.nn.relu(pre_activation, name=scp.name)
+      conv2 = batch_norm(conv2, True)
+      _activation_summary(conv2)
+    with tf.variable_scope('conv3') as scp:
+      kernel3 = _variable_with_weight_decay(
+        'weights3',
+        shape=[3, 3, 128, 256],
+        stddev=5e-2,
+        wd=0.0)
+      conv3 = tf.nn.conv2d(
+        input=conv2,
+        filter=kernel3,
+        padding='SAME',
+        strides=[1,2,2,1],
+        name='conv3'
+      )
+      biases = _variable_on_cpu('biases', [256], tf.constant_initializer(0.0))
+      pre_activation = tf.nn.bias_add(conv3, biases)
+      conv3 = tf.nn.relu(pre_activation, name=scp.name)
+      conv3 = batch_norm(conv3, True)
+      _activation_summary(conv3)
+    with tf.variable_scope('conv4') as scp:
+      kernel4 = _variable_with_weight_decay(
+        'weights4',
+        shape=[3, 3, 256, 512],
+        stddev=5e-2,
+        wd=0.0)
+      conv4 = tf.nn.conv2d(
+        input=conv3,
+        filter=kernel4,
+        padding='SAME',
+        strides=[1,1,1,1],
+        name='conv4'
+      )
+      biases = _variable_on_cpu('biases', [512], tf.constant_initializer(0.0))
+      pre_activation = tf.nn.bias_add(conv4, biases)
+      conv4 = tf.nn.relu(pre_activation, name=scp.name)
+      conv4 = batch_norm(conv4, True)
+      _activation_summary(conv4)
   return conv4
 def build_rcnn_graph(stacked_images):
   NUM_HIDDEN = 500 #hidden units in lstm
-  MAX_STEPSIZE = 5
+  MAX_STEPSIZE = 4
   cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
   if FLAGS.eval_data!='test':
     cell = tf.contrib.rnn.DropoutWrapper(cell = cell, output_keep_prob=0.8)
@@ -240,16 +282,20 @@ def build_rcnn_graph(stacked_images):
       # stacking rnn cells
   stack = tf.contrib.rnn.MultiRNNCell([cell, cell1], state_is_tuple=True)
   temp_inputs = []
-  for stack_im in stacked_images:
-    temp_inputs.append(cnn_layers(stack_im))
+  reuse=None
+  for i in range(stacked_images.shape[1]):
+    temp_inputs.append(cnn_layers(stacked_images[i],reuse))
+    reuse=True
+  # for stack_im in stacked_images:
+  #   temp_inputs.append(cnn_layers(stack_im))
   rnn_inputs = [tf.reshape(temp_inputs[i],[FLAGS.batch_size, -1]) for i in range(MAX_STEPSIZE)]
   outputs, states = tf.nn.static_rnn(stack, rnn_inputs, dtype=tf.float32)
   W = tf.get_variable(name='W',
-                      shape=[NUM_HIDDEN, LIGHT_NUMBER*3],
+                      shape=[NUM_HIDDEN, 3],
                       dtype=tf.float32,
                       initializer=tf.contrib.layers.xavier_initializer())
   b = tf.get_variable(name='b',
-                      shape=[LIGHT_NUMBER*3],
+                      shape=[3],
                       dtype=tf.float32,
                       initializer=tf.constant_initializer())
   light_est = [tf.nn.xw_plus_b(output_state, W, b) for output_state in outputs]
@@ -352,37 +398,6 @@ def loss_2(est_normals, gts):
   est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
   return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals, gts))))
 
-def loss(est_normals, gts):
-  """Calculates the loss from the logits and the labels.
-
-    """
-  #tf.assign(est_normals, regularize_normals(est_normals))
-  est_normals = regularize_normals(est_normals)
-  #assert_op = tf.Assert(tf.count_nonzero(gts>10)==0,[gts])
-  #assert_op.mark_used()
-  # gts = tf.Print(gts, [gts], 'ground truth: ')
-  # est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
-
-  est_colle = tf.split(est_normals, LIGHT_NUMBER, axis=1)
-  gts_colle = tf.split(gts, LIGHT_NUMBER, axis=1)
-  loss = 0
-
-  for i in range(LIGHT_NUMBER):
-    error = tf.multiply(est_colle[i], gts_colle[i])
-    cos_error = tf.reduce_sum(error, 1)
-    # tf.boolean_mask(cos_error,cos_error>1).assign(1)
-    # tf.boolean_mask(cos_error,cos_error<-1).assign(-1)
-    max_cos = tf.reduce_max(tf.abs(cos_error))
-    cos_error = tf.cond(max_cos>1, lambda: tf.div(cos_error, max_cos), lambda: cos_error)
-
-    #tf.scatter_update(cos_error,cos_error>1, 1)
-    #tf.scatter_update(cos_error,cos_error<-1, -1)
-    rad_error = tf.acos(cos_error)
-    deg_error = rad_error/3.1415926*180
-    loss = loss + tf.reduce_sum(deg_error)
-  #loss = tf.Print(loss, [loss], '\nloss:')
-  return loss
-
 def evaluation(logits, labels):
     """Evaluate the quality of the logits at predicting the label.
 
@@ -399,21 +414,6 @@ def evaluation(logits, labels):
     error = tf.abs(tf.subtract(logits, labels))
     #error = tf.Print(error, [error], 'error: ')
     total_error = tf.abs(tf.subtract(logits, labels))
-    # est = regularize_normals(logits)
-    # est = tf.Print(est, [est], 'estimated: ')
-    # est_colle = tf.split(est, LIGHT_NUMBER, axis=1)
-    # gts_colle = tf.split(labels, LIGHT_NUMBER, axis=1)
-    # for i in range(LIGHT_NUMBER):
-    #   error = tf.multiply(logits, labels)
-    #   cos_error = tf.reduce_sum(error, 1)
-    #   rad_error = tf.acos(cos_error)
-    #   deg_error = rad_error/3.1415926*180
-    #   if i==0:
-    #     total_error = deg_error
-    #   else:
-    #     total_error = tf.add(total_error, deg_error)
-    # tf.Print(total_error,[total_error], 'total_error')
-    # Return the number of true entries.
     return total_error
 
 
