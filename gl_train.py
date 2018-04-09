@@ -51,7 +51,7 @@ parser = gl.parser
 parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
-parser.add_argument('--max_steps', type=int, default=100000,
+parser.add_argument('--max_steps', type=int, default=1000,
                     help='Number of batches to run.')
 
 parser.add_argument('--log_device_placement', type=bool, default=False,
@@ -59,7 +59,6 @@ parser.add_argument('--log_device_placement', type=bool, default=False,
 
 parser.add_argument('--log_frequency', type=int, default=100,
                     help='How often to log results to the console.')
-
 
 
 def train():
@@ -77,7 +76,7 @@ def train():
     # Build a Graph that computes the logits predictions from the
     # inference model.
     a = tf.Print(images.shape, [images.shape])
-    logits = gl.inference(images)
+    logits, conv1, conv2, conv3, conv4 = gl.inference(images)
 
     # Calculate loss.
     loss = gl.loss_2(logits, labels)
@@ -121,12 +120,30 @@ def train():
             log_device_placement=FLAGS.log_device_placement)) as mon_sess:
       buffer_labels = []
       buffer_logits = []
+      counter = 0;
+      conv1_buffer = []
+      conv2_buffer = []
+      conv3_buffer = []
+      conv4_buffer = []
       while not mon_sess.should_stop():
 #        mon_sess = tfdbg.LocalCLIDebugWrapperSession(mon_sess)
 #        mon_sess.add_tensor_filter("has_inf_or_nan", tfdbg.has_nan_or_inf)
         _0, _1, np_labels, np_logits = mon_sess.run([train_op, check_op, labels, logits])
+        # print(conv1.shape, conv2.shape, conv3.shape, conv4.shape)
+        # conv1, conv2, conv3, conv4 = mon_sess.run([conv1, conv2, conv3, conv4])
         buffer_labels.append(np_labels)
         buffer_logits.append(np_logits)
+        # conv1_buffer.append(conv1)
+        # conv2_buffer.append(conv2)
+        # conv3_buffer.append(conv3)
+        # conv4_buffer.append(conv4)
+        # counter = counter+1
+        # if counter%10==0:
+        #   f_index = int(counter/1000)
+        #   np.save('train_playground/conv1/%d.npy'%(f_index), np.array(conv1_buffer))
+        #   np.save('train_playground/conv2/%d.npy'%(f_index), np.array(conv2_buffer))
+        #   np.save('train_playground/conv3/%d.npy'%(f_index), np.array(conv3_buffer))
+        #   np.save('train_playground/conv4/%d.npy'%(f_index), np.array(conv4_buffer))
       np.save('train_playground/np_labels.npy', np.array(buffer_labels))
       np.save('train_playground/np_logits.npy', np.array(buffer_logits))
 

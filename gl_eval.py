@@ -49,7 +49,7 @@ parser = gl.parser
 parser.add_argument('--eval_dir', type=str, default='/tmp/gl_eval',
                     help='Directory where to write event logs.')
 
-parser.add_argument('--eval_data', type=str, default='test',
+parser.add_argument('--test_eval_data', type=str, default='test',
                     help='Either `test` or `train_eval`.')
 
 parser.add_argument('--checkpoint_dir', type=str, default='data_tiny',
@@ -130,7 +130,7 @@ def evaluate():
     # Get images and labels for CIFAR-10.
     p_buffer = []
     gt_buffer = []
-    eval_data = FLAGS.eval_data == 'test'
+    eval_data = FLAGS.test_eval_data == 'test'
     images, labels = gl.inputs(eval_data)
     fuck_labels.append(labels)
 

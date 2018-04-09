@@ -28,9 +28,8 @@ import numpy as np
 IMAGE_SIZE = 32
 
 # Global constants describing the CIFAR-10 data set.
-NUM_CLASSES = 10
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 50000
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 2892
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 20
 
 
 def _generate_image_and_label_batch(image, label, min_queue_examples,
@@ -87,7 +86,7 @@ def inputs(eval_data, data_dir, batch_size, if_shuffle=False):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['curve_tf_train/%d.tfrecord'%(i) for i in range(40)]
+    filenames = ['curve_tf_train/%d.tfrecord'%(i) for i in range(1)]
     #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
