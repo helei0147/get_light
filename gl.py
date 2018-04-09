@@ -49,7 +49,7 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=32,
+parser.add_argument('--batch_size', type=int, default=16,
                     help='Number of images to process in a batch.')
 
 parser.add_argument('--data_dir', type=str, default='---',
@@ -69,9 +69,9 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
-NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
+NUM_EPOCHS_PER_DECAY = 1000.0     # Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.1       # Initial learning rate.
+INITIAL_LEARNING_RATE = 0.001       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -162,7 +162,8 @@ def inputs(eval_data):
     raise ValueError('Please supply a data_dir')
   images, labels = gl_input.inputs(eval_data=eval_data,
                                         data_dir='continuous_data/',
-                                        batch_size=FLAGS.batch_size)
+                                        batch_size=FLAGS.batch_size,
+                                        if_shuffle=True)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
     labels = tf.cast(labels, tf.float16)
@@ -196,12 +197,18 @@ def batch_norm(inputs_, phase_train=True, decay=0.9, eps=1e-5):
         return tf.nn.batch_normalization(inputs_, pop_mean, pop_var, beta, gamma, eps)
 def cnn_layers(images,reuse):
   with tf.variable_scope('cnns', reuse=reuse) as scope:
+    tf.Print(images.get_shape(),[images.get_shape()])
+    with tf.variable_scope('visualization'):
+      layer1_image1 = images[0:1,:, :, 0:1]
+      layer1_image1 = tf.transpose(layer1_image1,perm=[3,1,2,0])
+      tf.summary.image("filtered_images_layer1",layer1_image1[..., 0::3], max_outputs=2)
     with tf.variable_scope('conv1') as scp:
+
       kernel1 = _variable_with_weight_decay(
         'weights1',
-        shape=[7, 7, 6, 64],
+        shape=[3, 3, 6, 64],
         stddev=5e-2,
-        wd=0.0
+        wd=None
       )
       conv1 = tf.nn.conv2d(
         input=images,
@@ -212,15 +219,29 @@ def cnn_layers(images,reuse):
       )
       biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
       pre_activation = tf.nn.bias_add(conv1, biases)
-      conv1 = tf.nn.relu(pre_activation, name=scp.name)
-      conv1 = batch_norm(conv1, True)
+      conv1 = batch_norm(pre_activation, True)
+      conv1 = tf.nn.relu(conv1, name=scp.name)
       _activation_summary(conv1)
+
+    # with tf.variable_scope('visualization'):
+    #   #scale weights to [0 1], type is still float
+    #   x_min = tf.reduce_min(kernel1)
+    #   x_max = tf.reduce_max(kernel1)
+    #   kernel_0_to_1 =(kernel1-x_min)/(x_max-x_min)
+    #   #to tf.image_summary format [batch_size, height, width, channels]
+    #   kernel_transposed = tf.transpose(kernel_0_to_1,[3,0,1,2])
+    #   #this will display random 3 filters from the 64 in conv1
+    #   tf.summary.image('conv1/filters',kernel_transposed[...,0:3], max_outputs=3)
+    #   layer1_image1 = conv1[0:1,:, :, 0:16]
+    #   layer1_image1 = tf.transpose(layer1_image1,perm=[3,1,2,0])
+    #   tf.summary.image("filtered_images_layer1",layer1_image1[..., 0:3], max_outputs=16)
+
     with tf.variable_scope('conv2') as scp:
       kernel2 = _variable_with_weight_decay(
         'weights2',
-        shape=[5,5,64,128],
+        shape=[3,3,64,128],
         stddev=5e-2,
-        wd=0.0)
+        wd=None)
       conv2 = tf.nn.conv2d(
         input=conv1,
         filter = kernel2,
@@ -230,15 +251,15 @@ def cnn_layers(images,reuse):
       )
       biases = _variable_on_cpu('biases', [128], tf.constant_initializer(0.0))
       pre_activation = tf.nn.bias_add(conv2, biases)
-      conv2 = tf.nn.relu(pre_activation, name=scp.name)
-      conv2 = batch_norm(conv2, True)
+      conv2 = batch_norm(pre_activation, True)
+      conv2 = tf.nn.relu(conv2, name=scp.name)
       _activation_summary(conv2)
     with tf.variable_scope('conv3') as scp:
       kernel3 = _variable_with_weight_decay(
         'weights3',
         shape=[3, 3, 128, 256],
         stddev=5e-2,
-        wd=0.0)
+        wd=None)
       conv3 = tf.nn.conv2d(
         input=conv2,
         filter=kernel3,
@@ -248,15 +269,15 @@ def cnn_layers(images,reuse):
       )
       biases = _variable_on_cpu('biases', [256], tf.constant_initializer(0.0))
       pre_activation = tf.nn.bias_add(conv3, biases)
-      conv3 = tf.nn.relu(pre_activation, name=scp.name)
-      conv3 = batch_norm(conv3, True)
+      conv3 = batch_norm(pre_activation, True)
+      conv3 = tf.nn.relu(conv3, name=scp.name)
       _activation_summary(conv3)
     with tf.variable_scope('conv4') as scp:
       kernel4 = _variable_with_weight_decay(
         'weights4',
         shape=[3, 3, 256, 512],
         stddev=5e-2,
-        wd=0.0)
+        wd=None)
       conv4 = tf.nn.conv2d(
         input=conv3,
         filter=kernel4,
@@ -266,12 +287,12 @@ def cnn_layers(images,reuse):
       )
       biases = _variable_on_cpu('biases', [512], tf.constant_initializer(0.0))
       pre_activation = tf.nn.bias_add(conv4, biases)
-      conv4 = tf.nn.relu(pre_activation, name=scp.name)
-      conv4 = batch_norm(conv4, True)
+      conv4 = batch_norm(pre_activation, True)
+      conv4 = tf.nn.relu(conv4, name=scp.name)
       _activation_summary(conv4)
-  return conv4
+  return conv4, conv1, conv2, conv3
 def build_rcnn_graph(stacked_images):
-  NUM_HIDDEN = 500 #hidden units in lstm
+  NUM_HIDDEN = 1000 #hidden units in lstm
   MAX_STEPSIZE = 4
   cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
   if FLAGS.eval_data!='test':
@@ -284,7 +305,8 @@ def build_rcnn_graph(stacked_images):
   temp_inputs = []
   reuse=None
   for i in range(stacked_images.shape[1]):
-    temp_inputs.append(cnn_layers(stacked_images[i],reuse))
+    conv4, conv1, conv2, conv3 = cnn_layers(stacked_images[i],reuse)
+    temp_inputs.append(conv4)
     reuse=True
   # for stack_im in stacked_images:
   #   temp_inputs.append(cnn_layers(stack_im))
@@ -300,7 +322,7 @@ def build_rcnn_graph(stacked_images):
                       initializer=tf.constant_initializer())
   light_est = [tf.nn.xw_plus_b(output_state, W, b) for output_state in outputs]
   light_est = tf.reshape(light_est, [FLAGS.batch_size, LIGHT_NUMBER*3])
-  return light_est
+  return light_est, conv1, conv2, conv3, conv4
 
 def inference(images):
   '''
@@ -367,7 +389,7 @@ def train(total_loss, global_step):
 
   # Compute gradients.
   with tf.control_dependencies([loss_averages_op]):
-    opt = tf.train.GradientDescentOptimizer(lr)
+    opt = tf.train.AdamOptimizer()
     grads = opt.compute_gradients(total_loss)
 
   # Apply gradients.
@@ -394,9 +416,13 @@ def train(total_loss, global_step):
 
 def loss_2(est_normals, gts):
   #est_normals = regularize_normals(est_normals)
-  gts = tf.Print(gts, [gts], 'ground truth: ')
-  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
-  return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals, gts))))
+  #gts = tf.Print(gts, [gts], 'ground truth: ')
+  #est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  subs = tf.subtract(est_normals, gts)
+  return tf.reduce_sum(tf.multiply(subs, subs))
+
+def loss_e(est_normals, gts):
+  return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals,gts))))
 
 def evaluation(logits, labels):
     """Evaluate the quality of the logits at predicting the label.
