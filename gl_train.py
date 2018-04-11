@@ -51,7 +51,7 @@ parser = gl.parser
 parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
-parser.add_argument('--max_steps', type=int, default=1000,
+parser.add_argument('--max_steps', type=int, default=200000,
                     help='Number of batches to run.')
 
 parser.add_argument('--log_device_placement', type=bool, default=False,
@@ -76,7 +76,7 @@ def train():
     # Build a Graph that computes the logits predictions from the
     # inference model.
     a = tf.Print(images.shape, [images.shape])
-    logits, conv1, conv2, conv3, conv4 = gl.inference(images)
+    logits = gl.inference(images)
 
     # Calculate loss.
     loss = gl.loss_2(logits, labels)
