@@ -58,14 +58,14 @@ parser.add_argument('--checkpoint_dir', type=str, default='data_tiny',
 parser.add_argument('--eval_interval_secs', type=int, default=60*5,
                     help='How often to run the eval.')
 
-parser.add_argument('--num_examples', type=int, default=23940,
+parser.add_argument('--num_examples', type=int, default=2588,
                     help='Number of examples to run.')
 
 parser.add_argument('--run_once', type=bool, default=True,
                     help='Whether to run eval only once.')
 
 
-def eval_once(saver, summary_writer, result, summary_op, labels):
+def eval_once(saver, summary_writer, result, summary_op, labels, logits):
   """Run Eval once.
 
   Args:
@@ -77,14 +77,18 @@ def eval_once(saver, summary_writer, result, summary_op, labels):
   prediction_buffer = []
   with tf.Session() as sess:
     ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    print('ckpt', ckpt)
+    print('ckpt.model_checkpoint_path', ckpt.model_checkpoint_path)
     if ckpt and ckpt.model_checkpoint_path:
       # Restores from checkpoint
       print('\n\nloaded\n\n')
-      saver.restore(sess, ckpt.model_checkpoint_path)
+      # saver.restore(sess, ckpt.model_checkpoint_path)
+      saver.restore(sess, 'data_tiny/model.ckpt-5872')
       # Assuming model_checkpoint_path looks something like:
       #   /my-favorite-path/gl_train/model.ckpt-0,
       # extract global_step from it.
-      global_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+      # global_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+      global_step = 5872
     else:
       print('No checkpoint file found')
       return
@@ -93,20 +97,22 @@ def eval_once(saver, summary_writer, result, summary_op, labels):
     for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
         threads.extend(qr.create_threads(sess, coord = coord, daemon = True, start = True))
     num_iter = int(math.ceil(FLAGS.num_examples/FLAGS.batch_size))
-    print('\n\n\nnum_iter')
-    print(num_iter)
     total_error = 0
     total_sample_count = num_iter*FLAGS.batch_size
     step = 0
     labels_buffer = []
+    prediction_buffer = []
+    est_buffer = []
     while step<num_iter and not coord.should_stop():
       prediction = sess.run([result])
-      ori_labels = sess.run([labels])
-      prediction_buffer.append(prediction[0])
-      labels_buffer.append(ori_labels[0])
+      ori_labels, estimated = sess.run([labels, logits])
       # print(prediction)
-      #print('\n\nlen prediction:%f'%(len(prediction[0])))
-      #print(np.sum(prediction)/len(prediction[0]))
+      ori_labels = np.array(ori_labels)
+      estimated = np.array(estimated)
+      estimated = np.transpose(estimated, [1,0,2]) # estimated has shape of [batch_size, 4, 3]
+      prediction_buffer.append(prediction[0])
+      labels_buffer.append(ori_labels)
+      est_buffer.append(estimated)
       total_error += np.sum(prediction[0])
       step+=1
     precision = total_error/total_sample_count
@@ -120,7 +126,8 @@ def eval_once(saver, summary_writer, result, summary_op, labels):
     coord.join(threads, stop_grace_period_secs = 10)
   prediction_buffer = np.array(prediction_buffer)
   ori_labels = np.array(labels_buffer)
-  return prediction_buffer, ori_labels
+  estimated = np.array(est_buffer)
+  return prediction_buffer, ori_labels, estimated
 
 
 def evaluate():
@@ -130,6 +137,7 @@ def evaluate():
     # Get images and labels for CIFAR-10.
     p_buffer = []
     gt_buffer = []
+    est_buffer = []
     eval_data = FLAGS.test_eval_data == 'test'
     images, labels = gl.inputs(eval_data)
     fuck_labels.append(labels)
@@ -151,20 +159,21 @@ def evaluate():
     p_cnt = 0
     while True:
       print('\n\neval_once\n\n')
-      prediction_buffer, ori_labels = eval_once(saver, summary_writer, result, summary_op, labels)
+      prediction_buffer, ori_labels, estimated = eval_once(saver, summary_writer, result, summary_op, labels, logits)
+      print('---------------------')
+      print(ori_labels.shape, estimated.shape)
+      print('---------------------')
       p_buffer.append(prediction_buffer)
       gt_buffer.append(ori_labels)
-      np.save('predicted/p%d.npy'%(p_cnt), prediction_buffer)
+      est_buffer.append(estimated)
+      # np.save('predicted/p%d.npy'%(p_cnt), prediction_buffer)
       p_cnt = p_cnt+1
       if FLAGS.run_once:
         break
-    p_buffer = np.array(p_buffer)
-    if p_buffer.shape[0]==1:
-      np.save('eval_playground/p.npy', p_buffer[0])
-      np.save('eval_playground/gt.npy', gt_buffer[0])
-    else:
-      np.save('eval_playground/p.npy', p_buffer)
-      np.save('eval_playground/gt.npy', gt_buffer)
+
+    np.save('eval_playground/p.npy', np.array(p_buffer)[0])
+    np.save('eval_playground/gt.npy', np.array(gt_buffer)[0])
+    np.save('eval_playground/est.npy', np.array(est_buffer)[0])
 
 def main(argv=None):  # pylint: disable=unused-argument
   tf.gfile.MakeDirs(FLAGS.eval_dir)

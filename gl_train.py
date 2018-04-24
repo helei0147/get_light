@@ -51,7 +51,7 @@ parser = gl.parser
 parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
-parser.add_argument('--max_steps', type=int, default=200000,
+parser.add_argument('--max_steps', type=int, default=100000,
                     help='Number of batches to run.')
 
 parser.add_argument('--log_device_placement', type=bool, default=False,
@@ -79,7 +79,8 @@ def train():
     logits = gl.inference(images)
 
     # Calculate loss.
-    loss = gl.loss_2(logits, labels)
+    # loss = gl.loss_2(logits, labels)
+    loss = gl.loss_depart(logits, labels)
 
     # Build a Graph that trains the model with one batch of examples and
     # updates the model parameters.

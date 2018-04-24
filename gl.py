@@ -49,7 +49,7 @@ import gl_input
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=16,
+parser.add_argument('--batch_size', type=int, default=64,
                     help='Number of images to process in a batch.')
 
 parser.add_argument('--data_dir', type=str, default='---',
@@ -69,8 +69,8 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
-NUM_EPOCHS_PER_DECAY = 1000.0     # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
+NUM_EPOCHS_PER_DECAY = 25     # Epochs after which learning rate decays.
+LEARNING_RATE_DECAY_FACTOR = 0.5  # Learning rate decay factor.
 INITIAL_LEARNING_RATE = 0.001       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
@@ -231,16 +231,36 @@ def cnn_layers(images):
       activation = tf.nn.leaky_relu,
       name = 'cnv3'
     )
-    _activation_summary(conv3)
-    tf.summary.image("conv3_inter", conv2[0:1,:,:,0:3])
-    output = tf.layers.conv2d(
+    conv3_1 = tf.layers.conv2d(
       inputs = conv3,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3_1'
+    )
+    _activation_summary(conv3_1)
+    tf.summary.image("conv3_inter", conv2[0:1,:,:,0:3])
+    conv4 = tf.layers.conv2d(
+      inputs = conv3_1,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv4'
+    )
+    _activation_summary(conv4)
+    output = tf.layers.conv2d(
+      inputs = conv4,
       filters = 512,
       kernel_size = [3,3],
       padding = 'same',
       strides = 2,
       name = 'output'
     )
+
     _activation_summary(output)
   return output
 def build_rcnn_graph(stacked_images):
@@ -277,7 +297,7 @@ def build_rcnn_graph(stacked_images):
                       dtype=tf.float32,
                       initializer=tf.constant_initializer())
   light_est = [tf.nn.xw_plus_b(output_state, W, b) for output_state in outputs]
-  light_est = tf.reshape(light_est, [FLAGS.batch_size, LIGHT_NUMBER*3])
+
   return light_est
 
 def inference(images):
@@ -346,20 +366,21 @@ def train(total_loss, global_step):
 
   # Compute gradients.
   with tf.control_dependencies([loss_averages_op]):
-    opt = tf.train.AdamOptimizer(learning_rate=0.01)
-    grads = opt.compute_gradients(total_loss)
+    opt = tf.train.AdamOptimizer(lr).minimize(total_loss, global_step=global_step)
+    #grads = opt.compute_gradients(total_loss)
 
   # Apply gradients.
-  apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+  #apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+  apply_gradient_op = opt;
 
   # Add histograms for trainable variables.
   for var in tf.trainable_variables():
     tf.summary.histogram(var.op.name, var)
 
   # Add histograms for gradients.
-  for grad, var in grads:
-    if grad is not None:
-      tf.summary.histogram(var.op.name + '/gradients', grad)
+  # for grad, var in grads:
+  #   if grad is not None:
+  #     tf.summary.histogram(var.op.name + '/gradients', grad)
   # by replacing all instances of tf.get_variable() with tf.Variable().
   # Track the moving averages of all trainable variables.
   variable_averages = tf.train.ExponentialMovingAverage(
@@ -378,6 +399,47 @@ def loss_2(est_normals, gts):
   subs = tf.subtract(est_normals, gts)
   return tf.reduce_sum(tf.multiply(subs, subs))
 
+def loss_depart(est_normals, gts):
+  # print('est_normals:', est_normals)
+  gts = tf.split(gts, LIGHT_NUMBER, axis=1)
+  # print('gts:', gts)
+  logits = est_normals
+  # print('logits:', logits)
+  splited_normals = [regularize(normals) for normals in logits]
+  # print(splited_normals)
+  loss_result = 0
+  for est,gt in zip(splited_normals, gts):
+    # est = tf.Print(est, [est], 'est:')
+    # gt = tf.Print(gt, [gt], 'gt:')
+    to_arccos = tf.reduce_sum(tf.multiply(est, gt), axis=1)
+    # REASON FOR THE FOLLOWING TWO LINES
+    # max = tf.maximum(to_arccos)
+    # temp = to_arccos/max
+    # if max>1: # have some error in acos
+    #     temp<to_arccos==True
+    #     to_arccos = temp
+    # else:
+    #     to_arccos<temp==True
+    #     to_arccos = to_arccos
+    #
+    # temp = to_arccos/tf.reduce_max(to_arccos)
+    # scaled = tf.minimum(temp, to_arccos)
+    scaled = to_arccos/1.00001
+    degs = tf.acos(scaled)/3.1415926*180
+    loss_result = loss_result+tf.reduce_sum(degs)
+  los_result = tf.Print(loss_result, [loss_result], 'loss_result')
+  return loss_result
+
+def regularize(normals):
+    length_square = tf.reduce_sum(tf.square(normals), axis = 1)
+    length = tf.sqrt(length_square)
+    length = tf.expand_dims(length, 1)
+    weight = tf.concat([length, length, length], axis=1)
+    print(normals, weight)
+    assert weight.shape==normals.shape
+    regulared = tf.divide(normals, weight)
+    return regulared
+
 def loss_e(est_normals, gts):
   return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals,gts))))
 
@@ -391,41 +453,5 @@ def evaluation(logits, labels):
     Returns:
       total error in degree for this batch
     """
-    # regularize estimated normal(logits)
-    # labels = tf.Print(labels, [labels], 'original light directions:')
-    # logits = tf.Print(logits, [logits], 'estimated： ')
-    error = tf.abs(tf.subtract(logits, labels))
-    #error = tf.Print(error, [error], 'error: ')
-    total_error = tf.abs(tf.subtract(logits, labels))
+    total_error = loss_depart(logits, labels)
     return total_error
-
-
-def regularize_normals(logits):
-
-  normals = tf.split(logits, LIGHT_NUMBER, axis=1)
-  real_normals = []
-  for normal in normals:
-    #normal = tf.Print(normal, [normal], '\nunregularized: ')
-    normal = regularize_normals_sub(normal)
-    #normal = tf.Print(normal, [normal], '\nregularized normal:')
-    real_normals.append(normal)
-  logits = tf.concat(real_normals, 1)
-  return logits
-
-def regularize_normals_sub(logits):
-  dims = tf.split(logits,3, axis=1)
-  weight = tf.abs(dims[0])
-  weight = tf.concat([weight, weight, weight], axis=1)
-  logits = tf.divide(logits, weight)
-  #logits = tf.Print(logits, [logits], 'normal:')
-  pow_para = tf.zeros(tf.shape(logits))+2
-  squared = tf.pow(logits,pow_para)
-  sqr_sum = tf.reduce_sum(squared, 1)
-  pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
-  normal_lengths = tf.pow(sqr_sum,pow_para)
-  #normal_lengths = tf.Print(normal_lengths, [normal_lengths], 'normal_len:')
-  normal_lengths = tf.expand_dims(normal_lengths,1)
-  weight = tf.concat([normal_lengths, normal_lengths, normal_lengths], axis=1)
-  #weight = tf.Print(weight, [weight], '\n weight:')
-  regulared = tf.divide(logits,weight)
-  return regulared

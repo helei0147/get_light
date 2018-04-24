@@ -86,13 +86,13 @@ def inputs(eval_data, data_dir, batch_size, if_shuffle=False):
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['curve_tf_train/%d.tfrecord'%(i) for i in range(1)]
+    filenames = ['curve_tf_train/%d.tfrecord'%(i) for i in range(20)]
     #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
 
   else:
-    filenames = ['curve_tf_test/%d.tfrecord'%(i) for i in range(8)]
+    filenames = ['curve_tf_train/39.tfrecord']
     #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4,5)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
