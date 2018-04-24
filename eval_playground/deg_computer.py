@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot
 
 def cal_deg(logits, gt):
     batch_size, light_num = logits.shape
@@ -45,4 +46,14 @@ if __name__ == '__main__':
     for i in range(batch_num):
         degs = cal_deg(logits[i], labels[i])
         deg_buffer.append(degs)
+    deg_buffer = np.array(deg_buffer)
+        
+    print(deg_buffer.shape)
+    temp = np.sum(deg_buffer,2)
+    line = np.reshape(temp, [-1])
+    pyplot.hist(line, 200)
+    avg = np.average(temp)
+    print('avg: ', avg)
+    med = np.median(line)
+    print('med: ', med)
     np.save('degs.npy', np.array(deg_buffer))
