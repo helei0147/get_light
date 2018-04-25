@@ -58,7 +58,7 @@ parser.add_argument('--checkpoint_dir', type=str, default='data_tiny',
 parser.add_argument('--eval_interval_secs', type=int, default=60*5,
                     help='How often to run the eval.')
 
-parser.add_argument('--num_examples', type=int, default=2588,
+parser.add_argument('--num_examples', type=int, default=25,
                     help='Number of examples to run.')
 
 parser.add_argument('--run_once', type=bool, default=True,
@@ -81,14 +81,18 @@ def eval_once(saver, summary_writer, result, summary_op, labels, logits):
     print('ckpt.model_checkpoint_path', ckpt.model_checkpoint_path)
     if ckpt and ckpt.model_checkpoint_path:
       # Restores from checkpoint
-      print('\n\nloaded\n\n')
+
+      # print('\n\nloaded\n\n')
       # saver.restore(sess, ckpt.model_checkpoint_path)
-      saver.restore(sess, 'data_tiny/model.ckpt-5872')
+      # global_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+
       # Assuming model_checkpoint_path looks something like:
       #   /my-favorite-path/gl_train/model.ckpt-0,
       # extract global_step from it.
-      # global_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
-      global_step = 5872
+
+
+      saver.restore(sess, 'data_tiny/model.ckpt-11253')
+      global_step = 11253
     else:
       print('No checkpoint file found')
       return
@@ -139,12 +143,12 @@ def evaluate():
     gt_buffer = []
     est_buffer = []
     eval_data = FLAGS.test_eval_data == 'test'
-    images, labels = gl.inputs(eval_data)
+    images, ratioImages, labels = gl.inputs(eval_data)
     fuck_labels.append(labels)
 
     # Build a Graph that computes the logits predictions from the
     # inference model.
-    logits = gl.inference(images)
+    logits = gl.inference(images, ratioImages)
     result = gl.evaluation(logits, labels)
 
     # Restore the moving average version of the learned variables for eval.

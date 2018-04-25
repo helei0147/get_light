@@ -51,7 +51,7 @@ parser = gl.parser
 parser.add_argument('--train_dir', type=str, default='data_tiny/',
                     help='Directory where to write event logs and checkpoint.')
 
-parser.add_argument('--max_steps', type=int, default=100000,
+parser.add_argument('--max_steps', type=int, default=20000,
                     help='Number of batches to run.')
 
 parser.add_argument('--log_device_placement', type=bool, default=False,
@@ -71,12 +71,12 @@ def train():
     # Force input pipeline to CPU:0 to avoid operations sometimes ending up on
     # GPU and resulting in a slow down.
     with tf.device('/cpu:0'):
-      images, labels = gl.inputs(False)
+      images, ratioImages, labels = gl.inputs(False)
     check_op = tf.add_check_numerics_ops()
     # Build a Graph that computes the logits predictions from the
     # inference model.
     a = tf.Print(images.shape, [images.shape])
-    logits = gl.inference(images)
+    logits = gl.inference(images, ratioImages)
 
     # Calculate loss.
     # loss = gl.loss_2(logits, labels)

@@ -160,14 +160,15 @@ def inputs(eval_data):
   """
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
-  images, labels = gl_input.inputs(eval_data=eval_data,
+  images, ratioImage, labels = gl_input.inputs(eval_data=eval_data,
                                         data_dir='continuous_data/',
                                         batch_size=FLAGS.batch_size,
                                         if_shuffle=True)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
+    ratioImage = tf.cast(ratioImage, tf.float16)
     labels = tf.cast(labels, tf.float16)
-  return images, labels
+  return images, ratioImage, labels
 
 def check_input(images, lights):
   return images[0,:,:]
@@ -263,7 +264,77 @@ def cnn_layers(images):
 
     _activation_summary(output)
   return output
-def build_rcnn_graph(stacked_images):
+
+def cnn_layers_way2(images):
+  with tf.variable_scope('ratio', reuse = tf.AUTO_REUSE):
+    # with tf.variable_scope('visualization'):
+    #   layer1_image1 = images[0:1,:, :, 0:1]
+    #   layer1_image1 = tf.transpose(layer1_image1,perm=[3,1,2,0])
+    #   tf.summary.image("filtered_images_layer1",layer1_image1[..., 0::3], max_outputs=2)
+    conv1 = tf.layers.conv2d(
+        inputs = images,
+        filters = 64,
+        kernel_size = [3,3],
+        padding = 'same',
+        strides = 2,
+        activation = tf.nn.leaky_relu,
+        name = 'cnv1'
+    )
+    _activation_summary(conv1)
+    conv2 = tf.layers.conv2d(
+      inputs = conv1,
+      filters = 128,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv2'
+    )
+    _activation_summary(conv2)
+    tf.summary.image("conv2_inter", conv2[0:1,:,:,0:1])
+    conv3 = tf.layers.conv2d(
+      inputs = conv2,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3'
+    )
+    conv3_1 = tf.layers.conv2d(
+      inputs = conv3,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3_1'
+    )
+    _activation_summary(conv3_1)
+    tf.summary.image("conv3_inter", conv2[0:1,:,:,0:3])
+    conv4 = tf.layers.conv2d(
+      inputs = conv3_1,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv4'
+    )
+    _activation_summary(conv4)
+    output = tf.layers.conv2d(
+      inputs = conv4,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      name = 'output'
+    )
+
+    _activation_summary(output)
+  return output
+
+def build_rcnn_graph(stacked_images, ratioImages):
   NUM_HIDDEN = 1000 #hidden units in lstm
   MAX_STEPSIZE = 4
 
@@ -281,7 +352,9 @@ def build_rcnn_graph(stacked_images):
   reuse=None
   #_activation_summary(stacked_images.shape)
   for i in range(stacked_images.shape[1]):
-    conv4 = cnn_layers(stacked_images[:,i,...])
+    conv4 = cnn_layers(stacked_images[:,i, ...])
+    I_conv4 = cnn_layers_way2(ratioImages[:,i, ...])
+    concatenated_conv = tf.concat([conv4, I_conv4], axis=1)
     temp_inputs.append(conv4)
 
   # for stack_im in stacked_images:
@@ -300,12 +373,12 @@ def build_rcnn_graph(stacked_images):
 
   return light_est
 
-def inference(images):
+def inference(images, ratioImages):
   '''
   images is tensor with shape [32, 32, LIGHT_NUM*3]
   '''
   print(images)
-  light_est = build_rcnn_graph(images)
+  light_est = build_rcnn_graph(images, ratioImages)
 
   return light_est
 
