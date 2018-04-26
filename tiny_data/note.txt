@@ -1,0 +1,8 @@
+npy_buffer第一维是光照编号，第二维是切块位置编号，第三第四维是图片像素位置，第五维是材质编号。
+选取的是相同材质的相同位置的，不同光照的n个图像
+
+tiny_data/continous_tfrecord.py 生成的是连续光照下的frames， 不包含帧之间的变化和梯度的frame。生成两种数据：
+ 1. 随机材质、随机光照路径、随机位置的block集合的npy
+ 2. 上述数据相应的tfrecord
+tiny_data/npy_frames/boost.py 根据 tiny_data/continous_tfrecord.py 生成的npy文件，插入帧之间的信息和帧梯度生成新的npy
+new_con_tfrecord.py 根据tiny_data/npy_frames/boost.py 生成的npy文件，将其转换为tfrecord文件

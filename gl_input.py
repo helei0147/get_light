@@ -28,51 +28,37 @@ import numpy as np
 IMAGE_SIZE = 32
 
 # Global constants describing the CIFAR-10 data set.
-NUM_CLASSES = 10
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 50000
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 2892
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 20
 
 
-def _generate_image_and_label_batch(image, label, min_queue_examples,
+def _generate_image_and_label_batch(image, ratioImage, label, min_queue_examples,
                                     batch_size, shuffle):
-  """Construct a queued batch of images and labels.
 
-  Args:
-    image: 3-D Tensor of [height, width, 3] of type.float32.
-    label: 1-D Tensor of type.int32
-    min_queue_examples: int32, minimum number of samples to retain
-      in the queue that provides of batches of examples.
-    batch_size: Number of images per batch.
-    shuffle: boolean indicating whether to use a shuffling queue.
-
-  Returns:
-    images: Images. 4D tensor of [batch_size, height, width, 3] size.
-    labels: Labels. 1D tensor of [batch_size] size.
-  """
   # Create a queue that shuffles the examples, and then
   # read 'batch_size' images + labels from the example queue.
+  LIGHT_NUM = 4
   num_preprocess_threads = 16
   if shuffle:
-    images, label_batch = tf.train.shuffle_batch(
-        [image, label],
+    images, ratioImage, label_batch = tf.train.shuffle_batch(
+        [image, ratioImage, label],
         batch_size=batch_size,
         num_threads=num_preprocess_threads,
         capacity=min_queue_examples + 3 * batch_size,
         min_after_dequeue=min_queue_examples)
   else:
-    images, label_batch = tf.train.batch(
-        [image, label],
+    images, ratioImage, label_batch = tf.train.batch(
+        [image, ratioImage, label],
         batch_size=batch_size,
         num_threads=num_preprocess_threads,
         capacity=min_queue_examples + 3 * batch_size)
-
+  print(type(label_batch))
   # Display the training images in the visualizer.
-  tf.summary.image('images', images)
+  #tf.summary.image('images', images)
 
-  return images, tf.reshape(label_batch, [batch_size, 3])
+  return images, ratioImage, tf.reshape(label_batch, [batch_size, 3*LIGHT_NUM])
 
-
-def inputs(eval_data, data_dir, batch_size):
+def inputs(eval_data, data_dir, batch_size, if_shuffle=False):
   """Construct input for CIFAR evaluation using the Reader ops.
 
   Args:
@@ -81,22 +67,25 @@ def inputs(eval_data, data_dir, batch_size):
     batch_size: Number of images per batch.
 
   Returns:
-    images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
+    images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, ] size.
     light_directions: 2D tensor of [batch_size, 3] size.
   """
 
   # TODO:  need to add train/eval dir difference
   if not eval_data:
-    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8)]
+    filenames = ['curve_tf_train/%d.tfrecord'%(i) for i in range(1)]
+    #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
-    pass
+
   else:
-    filenames = ['data_small/%d.tfrecord'%(i) for i in range(8,10)]
+    filenames = ['curve_tf_train/1.tfrecord']
+    #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4,5)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
-    pass
+
   feature = {'image': tf.FixedLenFeature([], tf.string),
+            'ratioImage': tf.FixedLenFeature([], tf.string),
            'light': tf.FixedLenFeature([], tf.string)}
 
   filename_queue = tf.train.string_input_producer(filenames)
@@ -108,19 +97,26 @@ def inputs(eval_data, data_dir, batch_size):
   features = tf.parse_single_example(serialized_example, features = feature)
 
   image = tf.decode_raw(features['image'], tf.float32)
-  light = tf.decode_raw(features['light'], tf.float32)
+  ratioImage = tf.decode_raw(features['ratioImage'], tf.float32)
+  light = tf.decode_raw(features['light'], tf.float64)
 
-  image = tf.reshape(image,[32, 32, 1])
-
-
+  image = tf.reshape(image,[4,32,32,6])
+  ratioImage = tf.reshape(ratioImage, [4, 32, 32, 5])
+  light = tf.reshape(light, [12])
+  # tf.Assert(tf.count_nonzero(light>10)==0,[light])
+#  tf.Print(image, [image], 'image:')
   height = IMAGE_SIZE
   width = IMAGE_SIZE
-  float_image = tf.image.per_image_standardization(image)
 
 
   # Set the shapes of tensors.
-  float_image.set_shape([height, width, 1])
-  light.set_shape([3])
+  image.set_shape([4, height, width, 6])
+  ratioImage.set_shape([4, height, width, 5])
+  light.set_shape([12])
+  # tf.Print(image, [image], 'image: ')
+  # tf.Print(ratioImage, [ratioImage], 'ratioImage ')
+  # tf.Print(light, [light], 'light: ')
+  light = tf.cast(light, tf.float32)
 
   # Ensure that the random shuffling has good mixing properties.
   min_fraction_of_examples_in_queue = 0.4
@@ -128,6 +124,6 @@ def inputs(eval_data, data_dir, batch_size):
                            min_fraction_of_examples_in_queue)
 
   # Generate a batch of images and labels by building up a queue of examples.
-  return _generate_image_and_label_batch(float_image, light,
+  return _generate_image_and_label_batch(image, ratioImage, light,
                                          min_queue_examples, batch_size,
-                                         shuffle=True)
+                                         shuffle=if_shuffle)

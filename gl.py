@@ -40,24 +40,25 @@ import os
 import re
 import sys
 import tarfile
-
+import numpy as np
 from six.moves import urllib
 import tensorflow as tf
-
+from tensorflow.python import debug as tfdbg
 import gl_input
 
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
-parser.add_argument('--batch_size', type=int, default=1024,
+parser.add_argument('--batch_size', type=int, default=64,
                     help='Number of images to process in a batch.')
 
-parser.add_argument('--data_dir', type=str, default='data_small',
+parser.add_argument('--data_dir', type=str, default='---',
                     help='Path to the CIFAR-10 data directory.')
 
 parser.add_argument('--use_fp16', type=bool, default=False,
                     help='Train the model using fp16.')
-
+parser.add_argument('--eval_data', type=str, default='train',
+                    help='if train, use train.use test otherwise')
 FLAGS = parser.parse_args()
 
 # Global constants describing the CIFAR-10 data set.
@@ -68,14 +69,16 @@ NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = gl_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
 
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999     # The decay to use for the moving average.
-NUM_EPOCHS_PER_DECAY = 350.0      # Epochs after which learning rate decays.
-LEARNING_RATE_DECAY_FACTOR = 0.1  # Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.01       # Initial learning rate.
+NUM_EPOCHS_PER_DECAY = 25     # Epochs after which learning rate decays.
+LEARNING_RATE_DECAY_FACTOR = 0.5  # Learning rate decay factor.
+INITIAL_LEARNING_RATE = 0.001       # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
 # names of the summaries when visualizing a model.
 TOWER_NAME = 'tower'
+
+LIGHT_NUMBER = 4
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
 
@@ -157,103 +160,227 @@ def inputs(eval_data):
   """
   if not FLAGS.data_dir:
     raise ValueError('Please supply a data_dir')
-  data_dir = 'data_small/'
-  images, labels = gl_input.inputs(eval_data=eval_data,
-                                        data_dir=data_dir,
-                                        batch_size=FLAGS.batch_size)
+  images, ratioImage, labels = gl_input.inputs(eval_data=eval_data,
+                                        data_dir='continuous_data/',
+                                        batch_size=FLAGS.batch_size,
+                                        if_shuffle=True)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
+    ratioImage = tf.cast(ratioImage, tf.float16)
     labels = tf.cast(labels, tf.float16)
-  return images, labels
+  return images, ratioImage, labels
 
 def check_input(images, lights):
   return images[0,:,:]
 
-def inference(images):
-  """Build the CIFAR-10 model.
+def batch_norm(inputs_, phase_train=True, decay=0.9, eps=1e-5):
+    """Batch Normalization
 
-  Args:
-    images: Images returned from distorted_inputs() or inputs().
+       Args:
+           inputs_: input data(Batch size) from last layer
+           phase_train: when you test, please set phase_train "None"
+       Returns:
+           output for next layer
+    """
+    gamma = tf.get_variable("gamma", shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+    beta = tf.get_variable("beta", shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(0.0))
+    pop_mean = tf.get_variable("pop_mean", trainable=False, shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(0.0))
+    pop_var = tf.get_variable("pop_var", trainable=False, shape=inputs_.get_shape()[-1], dtype=tf.float32, initializer=tf.constant_initializer(1.0))
+    axes = list(range(len(inputs_.get_shape()) - 1))
 
-  Returns:
-    Logits.
-  """
-  # We instantiate all variables using tf.get_variable() instead of
-  # tf.Variable() in order to share variables across multiple GPU training runs.
-  # If we only ran this model on a single GPU, we could simplify this function
-  # by replacing all instances of tf.get_variable() with tf.Variable().
-  #
-  # conv1
-  with tf.variable_scope('conv1') as scope:
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 1, 64],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv1 = tf.nn.relu(pre_activation, name=scope.name)
+    if phase_train != None:
+        batch_mean, batch_var = tf.nn.moments(inputs_, axes)
+        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean*(1 - decay))
+        train_var = tf.assign(pop_var, pop_var * decay + batch_var * (1 - decay))
+        with tf.control_dependencies([train_mean, train_var]):
+            return tf.nn.batch_normalization(inputs_, batch_mean, batch_var, beta, gamma, eps)
+    else:
+        return tf.nn.batch_normalization(inputs_, pop_mean, pop_var, beta, gamma, eps)
+def cnn_layers(images):
+  with tf.variable_scope('cnns', reuse = tf.AUTO_REUSE):
+    # with tf.variable_scope('visualization'):
+    #   layer1_image1 = images[0:1,:, :, 0:1]
+    #   layer1_image1 = tf.transpose(layer1_image1,perm=[3,1,2,0])
+    #   tf.summary.image("filtered_images_layer1",layer1_image1[..., 0::3], max_outputs=2)
+    conv1 = tf.layers.conv2d(
+        inputs = images,
+        filters = 64,
+        kernel_size = [3,3],
+        padding = 'same',
+        strides = 2,
+        activation = tf.nn.leaky_relu,
+        name = 'cnv1'
+    )
     _activation_summary(conv1)
-
-  # pool1
-  pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
-                         padding='SAME', name='pool1')
-  # norm1
-  norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm1')
-
-  # conv2
-  with tf.variable_scope('conv2') as scope:
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 64, 64],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv2 = tf.nn.relu(pre_activation, name=scope.name)
+    conv2 = tf.layers.conv2d(
+      inputs = conv1,
+      filters = 128,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv2'
+    )
     _activation_summary(conv2)
+    tf.summary.image("conv2_inter", conv2[0:1,:,:,0:1])
+    conv3 = tf.layers.conv2d(
+      inputs = conv2,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3'
+    )
+    conv3_1 = tf.layers.conv2d(
+      inputs = conv3,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3_1'
+    )
+    _activation_summary(conv3_1)
+    tf.summary.image("conv3_inter", conv2[0:1,:,:,0:3])
+    conv4 = tf.layers.conv2d(
+      inputs = conv3_1,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv4'
+    )
+    _activation_summary(conv4)
+    output = tf.layers.conv2d(
+      inputs = conv4,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      name = 'output'
+    )
 
-  # norm2
-  norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm2')
-  # pool2
-  pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1],
-                         strides=[1, 2, 2, 1], padding='SAME', name='pool2')
+    _activation_summary(output)
+  return output
 
-  # local3
-  with tf.variable_scope('local3') as scope:
-    # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
-    dim = reshape.get_shape()[1].value
-    weights = _variable_with_weight_decay('weights', shape=[dim, 384],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
-    local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
-    _activation_summary(local3)
+def cnn_layers_way2(images):
+  with tf.variable_scope('ratio', reuse = tf.AUTO_REUSE):
+    # with tf.variable_scope('visualization'):
+    #   layer1_image1 = images[0:1,:, :, 0:1]
+    #   layer1_image1 = tf.transpose(layer1_image1,perm=[3,1,2,0])
+    #   tf.summary.image("filtered_images_layer1",layer1_image1[..., 0::3], max_outputs=2)
+    conv1 = tf.layers.conv2d(
+        inputs = images,
+        filters = 64,
+        kernel_size = [3,3],
+        padding = 'same',
+        strides = 2,
+        activation = tf.nn.leaky_relu,
+        name = 'cnv1'
+    )
+    _activation_summary(conv1)
+    conv2 = tf.layers.conv2d(
+      inputs = conv1,
+      filters = 128,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv2'
+    )
+    _activation_summary(conv2)
+    tf.summary.image("conv2_inter", conv2[0:1,:,:,0:1])
+    conv3 = tf.layers.conv2d(
+      inputs = conv2,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3'
+    )
+    conv3_1 = tf.layers.conv2d(
+      inputs = conv3,
+      filters = 256,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv3_1'
+    )
+    _activation_summary(conv3_1)
+    tf.summary.image("conv3_inter", conv2[0:1,:,:,0:3])
+    conv4 = tf.layers.conv2d(
+      inputs = conv3_1,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 1,
+      activation = tf.nn.leaky_relu,
+      name = 'cnv4'
+    )
+    _activation_summary(conv4)
+    output = tf.layers.conv2d(
+      inputs = conv4,
+      filters = 512,
+      kernel_size = [3,3],
+      padding = 'same',
+      strides = 2,
+      name = 'output'
+    )
 
-  # local4
-  with tf.variable_scope('local4') as scope:
-    weights = _variable_with_weight_decay('weights', shape=[384, 192],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
-    local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
-    _activation_summary(local4)
+    _activation_summary(output)
+  return output
 
-  # linear layer(WX + b),
-  # We don't apply softmax here because
-  # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
-  # and performs the softmax internally for efficiency.
-  with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, 3],
-                                          stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [3],
-                              tf.constant_initializer(0.0))
-    softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
-    #softmax_linear = tf.Print(softmax_linear,[softmax_linear],"softmax_linear: ")
-    _activation_summary(softmax_linear)
+def build_rcnn_graph(stacked_images, ratioImages):
+  NUM_HIDDEN = 1000 #hidden units in lstm
+  MAX_STEPSIZE = 4
 
-  return softmax_linear
+  cell = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
+  if FLAGS.eval_data!='test':
+    cell = tf.contrib.rnn.DropoutWrapper(cell = cell, output_keep_prob=0.8)
+
+  cell1 = tf.contrib.rnn.LSTMCell(NUM_HIDDEN, state_is_tuple=True)
+  if FLAGS.eval_data!='test':
+    cell1 = tf.contrib.rnn.DropoutWrapper(cell = cell1, output_keep_prob=0.8)
+  # stacking rnn cells
+  stack = tf.contrib.rnn.MultiRNNCell([cell, cell1], state_is_tuple=True)
+
+  temp_inputs = []
+  reuse=None
+  #_activation_summary(stacked_images.shape)
+  for i in range(stacked_images.shape[1]):
+    conv4 = cnn_layers(stacked_images[:,i, ...])
+    I_conv4 = cnn_layers_way2(ratioImages[:,i, ...])
+    concatenated_conv = tf.concat([conv4, I_conv4], axis=1)
+    temp_inputs.append(conv4)
+
+  # for stack_im in stacked_images:
+  #   temp_inputs.append(cnn_layers(stack_im))
+  rnn_inputs = [tf.reshape(temp_inputs[i],[FLAGS.batch_size, -1]) for i in range(MAX_STEPSIZE)]
+  outputs, states = tf.nn.static_rnn(stack, rnn_inputs, dtype=tf.float32)
+  W = tf.get_variable(name='W',
+                      shape=[NUM_HIDDEN, 3],
+                      dtype=tf.float32,
+                      initializer=tf.contrib.layers.xavier_initializer())
+  b = tf.get_variable(name='b',
+                      shape=[3],
+                      dtype=tf.float32,
+                      initializer=tf.constant_initializer())
+  light_est = [tf.nn.xw_plus_b(output_state, W, b) for output_state in outputs]
+
+  return light_est
+
+def inference(images, ratioImages):
+  '''
+  images is tensor with shape [32, 32, LIGHT_NUM*3]
+  '''
+  print(images)
+  light_est = build_rcnn_graph(images, ratioImages)
+
+  return light_est
 
 def _add_loss_summaries(total_loss):
   """Add summaries for losses in CIFAR-10 model.
@@ -312,20 +439,21 @@ def train(total_loss, global_step):
 
   # Compute gradients.
   with tf.control_dependencies([loss_averages_op]):
-    opt = tf.train.GradientDescentOptimizer(lr)
-    grads = opt.compute_gradients(total_loss)
+    opt = tf.train.AdamOptimizer(lr).minimize(total_loss, global_step=global_step)
+    #grads = opt.compute_gradients(total_loss)
 
   # Apply gradients.
-  apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+  #apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+  apply_gradient_op = opt;
 
   # Add histograms for trainable variables.
   for var in tf.trainable_variables():
     tf.summary.histogram(var.op.name, var)
 
   # Add histograms for gradients.
-  for grad, var in grads:
-    if grad is not None:
-      tf.summary.histogram(var.op.name + '/gradients', grad)
+  # for grad, var in grads:
+  #   if grad is not None:
+  #     tf.summary.histogram(var.op.name + '/gradients', grad)
   # by replacing all instances of tf.get_variable() with tf.Variable().
   # Track the moving averages of all trainable variables.
   variable_averages = tf.train.ExponentialMovingAverage(
@@ -337,30 +465,56 @@ def train(total_loss, global_step):
 
   return train_op
 
-def loss(est_normals, gts):
-  """Calculates the loss from the logits and the labels.
+def loss_2(est_normals, gts):
+  #est_normals = regularize_normals(est_normals)
+  #gts = tf.Print(gts, [gts], 'ground truth: ')
+  #est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
+  subs = tf.subtract(est_normals, gts)
+  return tf.reduce_sum(tf.multiply(subs, subs))
 
-    Args:
-      logits: Logits tensor, float - [batch_size, NUM_CLASSES].
-      labels: Labels tensor, int32 - [batch_size].
+def loss_depart(est_normals, gts):
+  # print('est_normals:', est_normals)
+  gts = tf.split(gts, LIGHT_NUMBER, axis=1)
+  # print('gts:', gts)
+  logits = est_normals
+  # print('logits:', logits)
+  splited_normals = [regularize(normals) for normals in logits]
+  # print(splited_normals)
+  loss_result = 0
+  for est,gt in zip(splited_normals, gts):
+    # est = tf.Print(est, [est], 'est:')
+    # gt = tf.Print(gt, [gt], 'gt:')
+    to_arccos = tf.reduce_sum(tf.multiply(est, gt), axis=1)
+    # REASON FOR THE FOLLOWING TWO LINES
+    # max = tf.maximum(to_arccos)
+    # temp = to_arccos/max
+    # if max>1: # have some error in acos
+    #     temp<to_arccos==True
+    #     to_arccos = temp
+    # else:
+    #     to_arccos<temp==True
+    #     to_arccos = to_arccos
+    #
+    # temp = to_arccos/tf.reduce_max(to_arccos)
+    # scaled = tf.minimum(temp, to_arccos)
+    scaled = to_arccos/1.00001
+    degs = tf.acos(scaled)/3.1415926*180
+    loss_result = loss_result+tf.reduce_sum(degs)
+  los_result = tf.Print(loss_result, [loss_result], 'loss_result')
+  return loss_result
 
-    Returns:
-      loss: Loss tensor of type float.
-    """
-  est_normals = regularize_normals(est_normals)
-  gts = regularize_normals(gts)
-  est_normals = tf.Print(est_normals, [est_normals], 'estimated: ')
-  error = tf.multiply(est_normals, gts)
-  cos_error = tf.reduce_sum(error, 1)
-  rad_error = tf.acos(cos_error)
-  deg_error = rad_error/3.1415926*180
-  loss = tf.reduce_sum(deg_error)
+def regularize(normals):
+    length_square = tf.reduce_sum(tf.square(normals), axis = 1)
+    length = tf.sqrt(length_square)
+    length = tf.expand_dims(length, 1)
+    weight = tf.concat([length, length, length], axis=1)
+    print(normals, weight)
+    assert weight.shape==normals.shape
+    regulared = tf.divide(normals, weight)
+    return regulared
 
-#  pow_para = tf.zeros(tf.shape(est_normals))+2
-#  a = est_normals-gts
-#  L = tf.pow(a, pow_para)
-#  loss = tf.reduce_sum(L)
-  return loss
+def loss_e(est_normals, gts):
+  return tf.reduce_sum(tf.exp(tf.abs(tf.subtract(est_normals,gts))))
 
 def evaluation(logits, labels):
     """Evaluate the quality of the logits at predicting the label.
@@ -372,23 +526,5 @@ def evaluation(logits, labels):
     Returns:
       total error in degree for this batch
     """
-    # regularize estimated normal(logits)
-    logits = regularize_normals(logits)
-    labels = regularize_normals(labels)
-    error = tf.multiply(logits, labels)
-    cos_error = tf.reduce_sum(error, 1)
-    rad_error = tf.acos(cos_error)
-    deg_error = rad_error/3.1415926*180
-    # Return the number of true entries.
-    return deg_error
-
-def regularize_normals(logits):
-    pow_para = tf.zeros(tf.shape(logits))+2
-    squared = tf.pow(logits,pow_para)
-    sqr_sum = tf.reduce_sum(squared, 1)
-    pow_para = tf.zeros(tf.shape(sqr_sum))+0.5
-    normal_lengths = tf.pow(sqr_sum,pow_para)
-    normal_lengths = tf.expand_dims(normal_lengths,1)
-    weight = tf.concat(1,[normal_lengths, normal_lengths, normal_lengths])
-    regulared = tf.divide(logits,weight)
-    return regulared
+    total_error = loss_depart(logits, labels)
+    return total_error
