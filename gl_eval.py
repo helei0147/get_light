@@ -58,7 +58,7 @@ parser.add_argument('--checkpoint_dir', type=str, default='data_tiny',
 parser.add_argument('--eval_interval_secs', type=int, default=60*5,
                     help='How often to run the eval.')
 
-parser.add_argument('--num_examples', type=int, default=25,
+parser.add_argument('--num_examples', type=int, default=1656,
                     help='Number of examples to run.')
 
 parser.add_argument('--run_once', type=bool, default=True,

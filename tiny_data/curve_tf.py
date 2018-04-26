@@ -35,7 +35,7 @@ for f in range(npy_file_num):
     else:
         blocks = np.load('train/boosted/new_%d.npy'%(f))
         lights = np.load('train/lights/%d.npy'%(f))
-        writer = tf.python_io.TFRecordWriter('curve_tf_train/%d.tfrecord'%(f))
+        writer = tf.python_io.TFRecordWriter('../curve_tf_train/%d.tfrecord'%(f))
 
     block_num, frame_num, height, width = blocks.shape
     print(blocks.shape)
@@ -76,8 +76,12 @@ for f in range(npy_file_num):
         I_buffer = np.array(I_buffer)
         I_buffer = np.transpose(I_buffer, [0, 2, 3, 1])
         assert I_buffer.shape==(LIGHT_NUMBER-1, 32, 32, 5)
+        I_buffer = I_buffer.astype(np.float32)
 
-        picked_light = lights[i*LIGHT_NUMBER:i*LIGHT_NUMBER+LIGHT_NUMBER-1,:]
+        ln = LIGHT_NUMBER+1
+        picked_light = lights[i*ln:i*ln+ln,:]
+        # print(picked_light.shape)
+        picked_light = picked_light[1:1+LIGHT_NUMBER-1, :] # the first light is (0,0,0), discard the last light
         picked_light = np.reshape(picked_light, [-1])
         assert picked_light.shape==(12,)
 
@@ -92,6 +96,7 @@ for f in range(npy_file_num):
         raw_image_block = buf.tostring()
         raw_RatioImage_block = I_buffer.tostring()
         raw_light_block = picked_light.tostring()
+        #print(len(raw_image_block), len(raw_RatioImage_block), len(raw_light_block))
         example = tf.train.Example(features = tf.train.Features(feature = {
             'image':_byte_feature(tf.compat.as_bytes(raw_image_block)),
             'ratioImage':_byte_feature(tf.compat.as_bytes(raw_RatioImage_block)),

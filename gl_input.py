@@ -79,7 +79,7 @@ def inputs(eval_data, data_dir, batch_size, if_shuffle=False):
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
 
   else:
-    filenames = ['curve_tf_test/0.tfrecord']
+    filenames = ['curve_tf_train/1.tfrecord']
     #filenames = ['slim_data_cut/%d.tfrecord'%(i) for i in range(4,5)]
     print(filenames)
     num_examples_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
